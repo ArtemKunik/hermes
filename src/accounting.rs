@@ -228,5 +228,49 @@ mod tests {
     fn parse_since_all_returns_none() {
         assert!(parse_since_duration("all").is_none());
     }
+
+    #[test]
+    fn parse_since_invalid_returns_none() {
+        assert!(parse_since_duration("yesterday").is_none());
+        assert!(parse_since_duration("").is_none());
+        assert!(parse_since_duration("abc").is_none());
+    }
+
+    #[test]
+    fn parse_since_1h() {
+        let dur = parse_since_duration("1h").unwrap();
+        assert_eq!(dur.as_secs(), 3600);
+    }
+
+    #[test]
+    fn session_stats_are_isolated_by_session_id() {
+        let engine = HermesEngine::in_memory("test-session-iso").unwrap();
+        let acct_a = Accountant::new(engine.db().clone(), "test-session-iso", "session-A");
+        let acct_b = Accountant::new(engine.db().clone(), "test-session-iso", "session-B");
+
+        acct_a.record_query("q1", 100, 0, 1000).unwrap();
+        acct_b.record_query("q2", 200, 0, 2000).unwrap();
+
+        let stats_a = acct_a.get_session_stats().unwrap();
+        let stats_b = acct_b.get_session_stats().unwrap();
+
+        assert_eq!(stats_a.total_queries, 1);
+        assert_eq!(stats_a.total_pointer_tokens, 100);
+        assert_eq!(stats_b.total_queries, 1);
+        assert_eq!(stats_b.total_pointer_tokens, 200);
+
+        // cumulative covers both sessions
+        let all = acct_a.get_cumulative_stats().unwrap();
+        assert_eq!(all.total_queries, 2);
+    }
+
+    #[test]
+    fn savings_pct_zero_when_no_traditional_estimate() {
+        let engine = HermesEngine::in_memory("test-zero-est").unwrap();
+        let acct = Accountant::new(engine.db().clone(), "test-zero-est", engine.session_id());
+        acct.record_query("q", 50, 0, 0).unwrap();
+        let stats = acct.get_cumulative_stats().unwrap();
+        assert_eq!(stats.cumulative_savings_pct, 0.0);
+    }
 }
 

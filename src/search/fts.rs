@@ -6,12 +6,31 @@ const FTS_LIMIT: usize = 20;
 const STRATEGY_MIN_RESULTS: usize = 3;
 const MAX_QUERY_WORDS: usize = 10;
 
+// Extracts alphanumeric/underscore tokens from the raw query and removes
+// FTS operators. This prevents FTS5 syntax errors when the user includes
+// punctuation (for example "/api/alerts").
+fn extract_words(query: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for ch in query.chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            cur.push(ch);
+        } else if !cur.is_empty() {
+            if !is_fts_operator(&cur) {
+                words.push(cur.clone());
+            }
+            cur.clear();
+        }
+    }
+    if !cur.is_empty() && !is_fts_operator(&cur) {
+        words.push(cur);
+    }
+    words.into_iter().take(MAX_QUERY_WORDS).collect()
+}
+
 pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResult>> {
-    let words: Vec<&str> = query
-        .split_whitespace()
-        .filter(|w| !is_fts_operator(w))
-        .take(MAX_QUERY_WORDS)
-        .collect();
+    // sanitize the query into plain word tokens before building FTS5 queries
+    let words: Vec<String> = extract_words(query);
 
     if words.is_empty() {
         return Ok(Vec::new());
@@ -85,11 +104,7 @@ mod tests {
     }
 
     fn prepare_test_query(query: &str) -> String {
-        let words: Vec<&str> = query
-            .split_whitespace()
-            .filter(|w| !is_fts_operator(w))
-            .take(MAX_QUERY_WORDS)
-            .collect();
+        let words: Vec<String> = extract_words(query);
         if words.len() == 1 {
             format!("\"{}\"", words[0])
         } else {
@@ -99,27 +114,26 @@ mod tests {
 
     #[test]
     fn filters_fts_operators() {
-        let words: Vec<&str> = "NOT main AND test OR foo"
-            .split_whitespace()
-            .filter(|w| !is_fts_operator(w))
-            .collect();
-        assert!(!words.contains(&"NOT"));
-        assert!(!words.contains(&"AND"));
-        assert!(!words.contains(&"OR"));
-        assert!(words.contains(&"main"));
-        assert!(words.contains(&"test"));
-        assert!(words.contains(&"foo"));
+        let words = extract_words("NOT main AND test OR foo");
+        assert!(!words.iter().any(|w| w.eq_ignore_ascii_case("NOT")));
+        assert!(!words.iter().any(|w| w.eq_ignore_ascii_case("AND")));
+        assert!(!words.iter().any(|w| w.eq_ignore_ascii_case("OR")));
+        assert!(words.contains(&"main".to_string()));
+        assert!(words.contains(&"test".to_string()));
+        assert!(words.contains(&"foo".to_string()));
     }
 
     #[test]
     fn truncates_to_ten_words() {
         let long_query = "a b c d e f g h i j k l m n";
-        let words: Vec<&str> = long_query
-            .split_whitespace()
-            .filter(|w| !is_fts_operator(w))
-            .take(MAX_QUERY_WORDS)
-            .collect();
+        let words = extract_words(long_query);
         assert_eq!(words.len(), MAX_QUERY_WORDS);
+    }
+
+    #[test]
+    fn ignores_punctuation_like_slashes() {
+        let tokens = extract_words("/api/alerts handler");
+        assert_eq!(tokens, vec!["api".to_string(), "alerts".to_string(), "handler".to_string()]);
     }
 
     #[test]

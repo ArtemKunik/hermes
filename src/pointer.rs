@@ -108,4 +108,59 @@ mod tests {
         assert!(resp.accounting.savings_pct > 0.0);
         assert!(resp.accounting.traditional_rag_estimate > resp.accounting.pointer_tokens);
     }
+
+    #[test]
+    fn pointer_response_empty_has_zero_savings() {
+        let resp = PointerResponse::build(vec![], 0);
+        assert_eq!(resp.accounting.pointer_tokens, 0);
+        assert_eq!(resp.accounting.savings_pct, 0.0);
+        assert_eq!(resp.accounting.total_tokens, 0);
+    }
+
+    #[test]
+    fn pointer_response_with_fetched_tokens_reduces_savings() {
+        let ptr = Pointer {
+            id: "p1".to_string(),
+            source: "src/search.rs".to_string(),
+            chunk: "fn search".to_string(),
+            lines: "1-50".to_string(),
+            relevance: 0.8,
+            summary: "Performs a hybrid search over the knowledge graph".to_string(),
+            node_type: "function".to_string(),
+            last_modified: None,
+        };
+        let no_fetch = PointerResponse::build(vec![ptr.clone()], 0);
+        let with_fetch = PointerResponse::build(vec![ptr], 5000);
+        // Adding fetched tokens should reduce (or maintain) savings percentage
+        assert!(with_fetch.accounting.savings_pct <= no_fetch.accounting.savings_pct);
+        assert_eq!(with_fetch.accounting.fetched_tokens, 5000);
+    }
+
+    #[test]
+    fn savings_pct_floored_at_zero() {
+        // Simulate a case where fetched tokens exceed the traditional estimate
+        // by using an empty pointer list (traditional_estimate = 0)
+        let resp = PointerResponse::build(vec![], 9999);
+        assert!(resp.accounting.savings_pct >= 0.0);
+    }
+
+    #[test]
+    fn total_tokens_equals_pointer_plus_fetched() {
+        let ptr = Pointer {
+            id: "x".to_string(),
+            source: "a".to_string(),
+            chunk: "b".to_string(),
+            lines: "1-2".to_string(),
+            relevance: 0.5,
+            summary: "short".to_string(),
+            node_type: "function".to_string(),
+            last_modified: None,
+        };
+        let fetched = 123;
+        let resp = PointerResponse::build(vec![ptr], fetched);
+        assert_eq!(
+            resp.accounting.total_tokens,
+            resp.accounting.pointer_tokens + fetched
+        );
+    }
 }

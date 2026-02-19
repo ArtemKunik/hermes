@@ -100,3 +100,86 @@ impl EdgeBuilder {
         self.edge
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── NodeBuilder ───────────────────────────────────────────────────────
+
+    #[test]
+    fn node_builder_defaults() {
+        let node = NodeBuilder::new("proj-1").build();
+        assert_eq!(node.project_id, "proj-1");
+        assert!(node.name.is_empty());
+        assert_eq!(node.node_type, NodeType::Concept);
+        assert!(node.file_path.is_none());
+        assert!(node.start_line.is_none());
+        assert!(node.end_line.is_none());
+        assert!(node.summary.is_none());
+        assert!(node.content_hash.is_none());
+        // id is a new uuid each time
+        assert!(!node.id.is_empty());
+    }
+
+    #[test]
+    fn node_builder_all_fields() {
+        let node = NodeBuilder::new("proj")
+            .name("my_fn")
+            .node_type(NodeType::Function)
+            .file_path("src/lib.rs")
+            .lines(5, 30)
+            .summary("does things")
+            .content_hash("deadbeef")
+            .build();
+
+        assert_eq!(node.name, "my_fn");
+        assert_eq!(node.node_type, NodeType::Function);
+        assert_eq!(node.file_path.as_deref(), Some("src/lib.rs"));
+        assert_eq!(node.start_line, Some(5));
+        assert_eq!(node.end_line, Some(30));
+        assert_eq!(node.summary.as_deref(), Some("does things"));
+        assert_eq!(node.content_hash.as_deref(), Some("deadbeef"));
+    }
+
+    #[test]
+    fn node_builder_produces_unique_ids() {
+        let a = NodeBuilder::new("p").build();
+        let b = NodeBuilder::new("p").build();
+        assert_ne!(a.id, b.id);
+    }
+
+    // ── EdgeBuilder ───────────────────────────────────────────────────────
+
+    #[test]
+    fn edge_builder_defaults() {
+        let edge = EdgeBuilder::new("proj").build();
+        assert_eq!(edge.project_id, "proj");
+        assert!(edge.source_id.is_empty());
+        assert!(edge.target_id.is_empty());
+        assert_eq!(edge.edge_type, EdgeType::DependsOn);
+        assert!((edge.weight - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn edge_builder_all_fields() {
+        let edge = EdgeBuilder::new("proj")
+            .source("n1")
+            .target("n2")
+            .edge_type(EdgeType::Calls)
+            .weight(0.75)
+            .build();
+
+        assert_eq!(edge.source_id, "n1");
+        assert_eq!(edge.target_id, "n2");
+        assert_eq!(edge.edge_type, EdgeType::Calls);
+        assert!((edge.weight - 0.75).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn edge_builder_produces_unique_ids() {
+        let a = EdgeBuilder::new("p").build();
+        let b = EdgeBuilder::new("p").build();
+        assert_ne!(a.id, b.id);
+    }
+}
