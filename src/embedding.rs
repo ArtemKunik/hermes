@@ -1,3 +1,17 @@
+//! # Optional: Gemini Embedding Generator
+//!
+//! This module provides an `EmbeddingGenerator` that calls the Google Gemini
+//! embedding API (`text-embedding-004`).  It is **not** used by the default
+//! search pipeline — the built-in vector search in `search::vector` uses a
+//! local token-hashing approach that requires no external service.
+//!
+//! You can wire this module into the ingestion or search pipeline if you want
+//! higher-quality semantic embeddings.  To use it, set:
+//!
+//! - `GEMINI_API_KEY`           — your Google AI API key (required)
+//! - `GEMINI_EMBEDDING_MODEL`   — model name (default: `text-embedding-004`)
+//! - `EMBEDDING_RPM`            — rate limit in requests/min (default: 60)
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::env;

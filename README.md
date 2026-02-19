@@ -23,7 +23,7 @@ src/
 ├── graph_queries.rs    # Graph traversal queries
 ├── pointer.rs          # Pointer node types and resolution
 ├── accounting.rs       # Token savings accounting
-├── embedding.rs        # Embedding generation (OpenAI-compatible)
+├── embedding.rs        # (Optional) Gemini embedding client — not used by default
 ├── temporal.rs         # Temporal fact store
 ├── mcp_server.rs       # MCP protocol implementation
 ├── ingestion/
@@ -43,7 +43,8 @@ src/
 ### Prerequisites
 
 - Rust 1.75+
-- An OpenAI-compatible embedding endpoint (or set `HERMES_EMBEDDINGS_DISABLED=1` to disable vector search)
+- No external services required — vector search works locally out of the box
+- *(Optional)* A Gemini API key if you want to use the higher-quality `EmbeddingGenerator` (see `src/embedding.rs`)
 
 ### Build
 
@@ -63,10 +64,9 @@ HERMES_PROJECT_ROOT=/path/to/your/project ./target/release/Hermes --stdio
 |----------|---------|-------------|
 | `HERMES_PROJECT_ROOT` | `.` | Root directory to index |
 | `HERMES_DB_PATH` | `<project_root>/.hermes/hermes.db` | SQLite database path |
-| `HERMES_EMBEDDINGS_URL` | `http://localhost:11434/v1/embeddings` | OpenAI-compatible embeddings endpoint |
-| `HERMES_EMBEDDINGS_MODEL` | `nomic-embed-text` | Embedding model name |
-| `HERMES_EMBEDDINGS_DISABLED` | `0` | Set to `1` to disable vector search |
-| `HERMES_OPENAI_API_KEY` | *(unset)* | API key if using OpenAI embeddings |
+| `GEMINI_API_KEY` | *(unset)* | *(Optional)* Google AI API key for `EmbeddingGenerator` |
+| `GEMINI_EMBEDDING_MODEL` | `text-embedding-004` | *(Optional)* Gemini embedding model name |
+| `EMBEDDING_RPM` | `60` | *(Optional)* Embedding API rate limit (requests/min) |
 
 ## MCP Tools
 
