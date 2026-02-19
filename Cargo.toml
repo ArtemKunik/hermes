@@ -1,0 +1,28 @@
+﻿[package]
+name = "hermes-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Rust-native knowledge engine with pointer-based RAG, hybrid search, and temporal truth"
+
+[[bin]]
+name = "Hermes"
+path = "src/bin/hermes.rs"
+
+[dependencies]
+rusqlite = { version = "0.31", features = ["bundled", "modern_sqlite"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+anyhow = "1.0"
+tracing = "0.1"
+sha2 = "0.10"
+hex = "0.4"
+memchr = "2"
+rayon = "1"
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1.0", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio-test = "0.4"
