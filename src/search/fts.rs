@@ -6,14 +6,41 @@ const FTS_LIMIT: usize = 20;
 const STRATEGY_MIN_RESULTS: usize = 3;
 const MAX_QUERY_WORDS: usize = 10;
 
+// Returns true for characters that belong to scripts without whitespace word
+// boundaries (CJK ideographs, Hiragana, Katakana, Hangul). Each such character
+// is emitted as its own token so that FTS can match sub-word queries.
+fn is_cjk(ch: char) -> bool {
+    matches!(ch,
+        '\u{3040}'..='\u{309F}'   // Hiragana
+        | '\u{30A0}'..='\u{30FF}' // Katakana
+        | '\u{3400}'..='\u{4DBF}' // CJK Extension A
+        | '\u{4E00}'..='\u{9FFF}' // CJK Unified Ideographs
+        | '\u{F900}'..='\u{FAFF}' // CJK Compatibility Ideographs
+        | '\u{20000}'..='\u{2A6DF}' // CJK Extension B
+        | '\u{AC00}'..='\u{D7AF}' // Hangul Syllables
+    )
+}
+
 // Extracts alphanumeric/underscore tokens from the raw query and removes
 // FTS operators. This prevents FTS5 syntax errors when the user includes
 // punctuation (for example "/api/alerts").
+// CJK characters are emitted individually because those scripts use no spaces
+// as word boundaries — grouping them into one token would prevent matching.
 fn extract_words(query: &str) -> Vec<String> {
     let mut words: Vec<String> = Vec::new();
     let mut cur = String::new();
     for ch in query.chars() {
-        if ch.is_alphanumeric() || ch == '_' {
+        if is_cjk(ch) {
+            // Flush any Latin/ASCII token accumulated so far.
+            if !cur.is_empty() {
+                if !is_fts_operator(&cur) {
+                    words.push(cur.clone());
+                }
+                cur.clear();
+            }
+            // Each CJK character becomes its own search token.
+            words.push(ch.to_string());
+        } else if ch.is_alphanumeric() || ch == '_' {
             cur.push(ch);
         } else if !cur.is_empty() {
             if !is_fts_operator(&cur) {

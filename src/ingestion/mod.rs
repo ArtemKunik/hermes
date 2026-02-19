@@ -84,7 +84,11 @@ impl<'a> IngestionPipeline<'a> {
     }
 
     pub fn ingest_file(&self, file_path: &Path) -> Result<usize> {
-        let content = std::fs::read_to_string(file_path)?;
+        // Read as raw bytes and convert to UTF-8 lossily so that files encoded
+        // in Latin-1, Windows-1252, GBK, etc. are still indexed rather than
+        // rejected with an "invalid UTF-8" error.
+        let bytes = std::fs::read(file_path)?;
+        let content = String::from_utf8_lossy(&bytes).into_owned();
         let path_str = file_path.to_string_lossy().to_string();
         let chunks = chunker::chunk_file(file_path, &content);
 

@@ -130,7 +130,7 @@ CREATE VIRTUAL TABLE fts_content USING fts5(
     name,
     content,
     file_path,
-    tokenize='porter unicode61'
+    tokenize='unicode61 remove_diacritics 2'
 );
 ";
 

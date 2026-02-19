@@ -6,29 +6,35 @@ use std::collections::HashSet;
 impl KnowledgeGraph {
     pub fn literal_search_by_name(&self, query: &str) -> Result<Vec<Node>> {
         let conn = self.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        // Use Rust's Unicode-aware to_lowercase() rather than SQLite's LOWER()
+        // which only folds ASCII letters (é, ü, Cyrillic, etc. are left as-is).
+        // We fetch all nodes for the project and filter in Rust so that
+        // non-ASCII case folding works correctly for every script.
         let query_lower = query.to_lowercase();
 
-        let prefix_pattern = format!("{}%", query_lower);
         let mut stmt = conn.prepare(
             "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash
-             FROM nodes WHERE project_id = ?1 AND LOWER(name) LIKE ?2",
+             FROM nodes WHERE project_id = ?1",
         )?;
-        let prefix_results: Vec<Node> = stmt
-            .query_map(params![self.project_id(), prefix_pattern], node_from_row)?
+        let all_nodes: Vec<Node> = stmt
+            .query_map(params![self.project_id()], node_from_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        // Prefer prefix matches; fall back to contains matches.
+        let prefix_results: Vec<Node> = all_nodes
+            .iter()
+            .filter(|n| n.name.to_lowercase().starts_with(&query_lower))
+            .cloned()
+            .collect();
 
         if !prefix_results.is_empty() {
             return Ok(prefix_results);
         }
 
-        let contains_pattern = format!("%{}%", query_lower);
-        let mut stmt2 = conn.prepare(
-            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash
-             FROM nodes WHERE project_id = ?1 AND LOWER(name) LIKE ?2",
-        )?;
-        let results: Vec<Node> = stmt2
-            .query_map(params![self.project_id(), contains_pattern], node_from_row)?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let results: Vec<Node> = all_nodes
+            .into_iter()
+            .filter(|n| n.name.to_lowercase().contains(&query_lower))
+            .collect();
         Ok(results)
     }
 
