@@ -1,4 +1,3 @@
-﻿// ChartApp/hermes-engine/src/embedding.rs
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::env;

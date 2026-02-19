@@ -1,4 +1,3 @@
-﻿// ChartApp/hermes-engine/src/search/mod.rs
 pub mod fts;
 pub mod literal;
 pub mod vector;
@@ -16,10 +15,8 @@ const CACHE_TTL_SECS: u64 = 60;
 const CACHE_MAX_ENTRIES: usize = 256;
 const FETCH_CACHE_MAX_ENTRIES: usize = 50;
 
-/// Short-circuit thresholds for tier skipping (Task 1.2).
-/// If L0 already returns top_k results all scoring >= this, skip subsequent tiers.
-const SHORT_CIRCUIT_SKIP_ALL: f64 = 0.9;  // Skip L1 + L2
-const SHORT_CIRCUIT_SKIP_L2: f64 = 0.8;   // Skip L2 only
+const SHORT_CIRCUIT_SKIP_ALL: f64 = 0.9;
+const SHORT_CIRCUIT_SKIP_L2: f64 = 0.8;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SearchMode {
@@ -45,15 +42,11 @@ pub enum SearchTier {
 
 pub struct SearchEngine<'a> {
     graph: &'a KnowledgeGraph,
-    /// Task 1.3: Shared search result cache (lives on HermesEngine).
     search_cache: Arc<Mutex<SearchCacheMap>>,
-    /// Task 3.3: Per-engine fetch content cache (keyed on file_path + line range).
     fetch_cache: Mutex<HashMap<(String, i64, i64), String>>,
 }
 
 impl<'a> SearchEngine<'a> {
-    /// Create a new SearchEngine with the shared cache from HermesEngine.
-    /// Pass `engine.search_cache()` as the cache argument.
     pub fn new(graph: &'a KnowledgeGraph, search_cache: Arc<Mutex<SearchCacheMap>>) -> Self {
         Self {
             graph,
@@ -63,7 +56,6 @@ impl<'a> SearchEngine<'a> {
     }
 
     pub fn search(&self, query: &str, top_k: usize, mode: &SearchMode) -> Result<PointerResponse> {
-        // Task 1.3: Check search cache first
         let cache_key = format!("{}:{}", query.trim().to_lowercase(), top_k);
         if let Some(cached) = self.get_from_cache(&cache_key) {
             return Ok(cached);
@@ -71,10 +63,8 @@ impl<'a> SearchEngine<'a> {
 
         let mut all_results: Vec<SearchResult> = Vec::new();
 
-        // L0: literal search (Task 1.1: SQL-indexed, no full table scan)
         let l0_results = literal::literal_search(self.graph, query)?;
 
-        // Task 1.2: Short-circuit if L0 already provides high-confidence top_k hits
         if l0_results.len() >= top_k {
             let min_score = l0_results
                 .iter()
@@ -83,7 +73,6 @@ impl<'a> SearchEngine<'a> {
                 .fold(f64::INFINITY, f64::min);
 
             if min_score >= SHORT_CIRCUIT_SKIP_ALL {
-                // Skip L1 and L2 entirely
                 let merged = Self::deduplicate_and_rank(l0_results, top_k);
                 let pointers = Self::results_to_pointers(&merged, mode);
                 let response = PointerResponse::build(pointers, 0);
@@ -92,7 +81,6 @@ impl<'a> SearchEngine<'a> {
             }
 
             if min_score >= SHORT_CIRCUIT_SKIP_L2 {
-                // Run L1, then skip L2
                 all_results.extend(l0_results);
                 let l1_results = fts::fts_search(self.graph, query)?;
                 all_results.extend(l1_results);
@@ -104,7 +92,6 @@ impl<'a> SearchEngine<'a> {
             }
         }
 
-        // Run all three tiers
         all_results.extend(l0_results);
 
         let l1_results = fts::fts_search(self.graph, query)?;
@@ -126,10 +113,8 @@ impl<'a> SearchEngine<'a> {
             return Ok(None);
         };
 
-        // Task 3.3: Fetch content cache
         let content = self.read_node_content_cached(&node)?;
 
-        // Task 3.1: Word-count based token estimate (more accurate than byte / 4)
         let token_count = estimate_tokens(&content);
 
         Ok(Some(FetchResponse {
@@ -142,9 +127,6 @@ impl<'a> SearchEngine<'a> {
         }))
     }
 
-    // -----------------------------------------------------------------------
-    // Cache helpers (Task 1.3)
-    // -----------------------------------------------------------------------
 
     fn get_from_cache(&self, key: &str) -> Option<PointerResponse> {
         let ttl = Duration::from_secs(CACHE_TTL_SECS);
@@ -153,7 +135,6 @@ impl<'a> SearchEngine<'a> {
             if inserted_at.elapsed() < ttl {
                 return Some(response.clone());
             }
-            // Expired — remove it
             cache.remove(key);
         }
         None
@@ -163,12 +144,10 @@ impl<'a> SearchEngine<'a> {
         let Ok(mut cache) = self.search_cache.lock() else {
             return;
         };
-        // Evict expired entries; if still too large, evict oldest
         if cache.len() >= CACHE_MAX_ENTRIES {
             let ttl = Duration::from_secs(CACHE_TTL_SECS);
             cache.retain(|_, (_, inserted)| inserted.elapsed() < ttl);
             if cache.len() >= CACHE_MAX_ENTRIES {
-                // Find and remove the oldest entry
                 if let Some(oldest_key) = cache
                     .iter()
                     .min_by_key(|(_, (_, t))| *t)
@@ -181,9 +160,6 @@ impl<'a> SearchEngine<'a> {
         cache.insert(key, (response, Instant::now()));
     }
 
-    // -----------------------------------------------------------------------
-    // Fetch content cache helper (Task 3.3)
-    // -----------------------------------------------------------------------
 
     fn read_node_content_cached(&self, node: &Node) -> Result<String> {
         let file_path = node.file_path.clone().unwrap_or_default();
@@ -191,7 +167,6 @@ impl<'a> SearchEngine<'a> {
         let end = node.end_line.unwrap_or(0);
         let cache_key = (file_path.clone(), start, end);
 
-        // Check fetch cache first
         if !file_path.is_empty() {
             if let Ok(cache) = self.fetch_cache.lock() {
                 if let Some(content) = cache.get(&cache_key) {
@@ -200,10 +175,8 @@ impl<'a> SearchEngine<'a> {
             }
         }
 
-        // Cache miss: read from disk
         let content = Self::read_node_content(node)?;
 
-        // Store in fetch cache (evict oldest if over limit, simple approach)
         if !file_path.is_empty() {
             if let Ok(mut cache) = self.fetch_cache.lock() {
                 if cache.len() >= FETCH_CACHE_MAX_ENTRIES {
@@ -218,9 +191,6 @@ impl<'a> SearchEngine<'a> {
         Ok(content)
     }
 
-    // -----------------------------------------------------------------------
-    // Internal helpers
-    // -----------------------------------------------------------------------
 
     fn deduplicate_and_rank(results: Vec<SearchResult>, top_k: usize) -> Vec<SearchResult> {
         let mut best: HashMap<String, SearchResult> = HashMap::new();
@@ -305,9 +275,6 @@ impl<'a> SearchEngine<'a> {
     }
 }
 
-/// Task 3.1: Word-count based token estimation.
-/// More accurate than byte-count / 4 for mixed code + prose content.
-/// Invariant: 1 token ≈ 0.75 words on average → tokens = words * 4 / 3.
 pub fn estimate_tokens(content: &str) -> u64 {
     let word_count = content.split_whitespace().count() as u64;
     (word_count * 4).div_ceil(3)
@@ -353,7 +320,6 @@ mod tests {
 
     #[test]
     fn short_circuit_skips_on_high_l0_confidence() {
-        // Verify the short-circuit threshold constants are correct
         assert!(SHORT_CIRCUIT_SKIP_ALL > SHORT_CIRCUIT_SKIP_L2);
         assert!(SHORT_CIRCUIT_SKIP_ALL <= 1.0);
         assert!(SHORT_CIRCUIT_SKIP_L2 > 0.0);
@@ -368,16 +334,14 @@ mod tests {
             let mut c = cache.lock().unwrap();
             c.insert("key:10".to_string(), (dummy, Instant::now()));
         }
-        // Verify cache has the entry
         let c = cache.lock().unwrap();
         assert!(c.contains_key("key:10"));
     }
 
     #[test]
     fn estimate_tokens_word_count_based() {
-        // "hello world foo bar" → 4 words → 4 * 4 / 3 = 5 tokens
         let tokens = estimate_tokens("hello world foo bar");
-        assert_eq!(tokens, 6); // ceil(4 * 4 / 3) = ceil(5.33) = 6
+        assert_eq!(tokens, 6);
     }
 
     #[test]

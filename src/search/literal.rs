@@ -1,10 +1,7 @@
-﻿// ChartApp/hermes-engine/src/search/literal.rs
 use crate::graph::KnowledgeGraph;
 use crate::search::{SearchResult, SearchTier};
 use anyhow::Result;
 
-/// Task 1.1: Uses SQL index (LOWER(name) LIKE ?) instead of full table scan.
-/// get_all_nodes() is never called from this function.
 pub fn literal_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResult>> {
     let query_lower = query.to_lowercase();
     let nodes = graph.literal_search_by_name(query)?;

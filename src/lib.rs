@@ -1,4 +1,3 @@
-﻿// tools/hermes-engine/src/lib.rs
 pub mod accounting;
 pub mod embedding;
 pub mod mcp_server;
@@ -20,17 +19,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use uuid::Uuid;
 
-/// In-process search result cache entry: (response, time_inserted).
 pub type SearchCacheMap = HashMap<String, (PointerResponse, Instant)>;
 
 #[derive(Clone)]
 pub struct HermesEngine {
     db: Arc<Mutex<Connection>>,
     project_id: String,
-    /// Unique ID for this process invocation. Used to scope per-session accounting.
     session_id: String,
-    /// Task 1.3: In-process LRU-style search result cache (60s TTL, max 256 entries).
-    /// Keyed on "query_lower:top_k". Shared across SearchEngine instances via clone of Arc.
     search_cache: Arc<Mutex<SearchCacheMap>>,
 }
 
@@ -70,12 +65,10 @@ impl HermesEngine {
         &self.session_id
     }
 
-    /// Returns the shared search result cache. Pass this into SearchEngine::new().
     pub fn search_cache(&self) -> Arc<Mutex<SearchCacheMap>> {
         self.search_cache.clone()
     }
 
-    /// Task 1.3: Invalidate the search cache (called after re-index).
     pub fn invalidate_search_cache(&self) {
         if let Ok(mut cache) = self.search_cache.lock() {
             cache.clear();

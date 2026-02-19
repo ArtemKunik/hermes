@@ -1,4 +1,3 @@
-﻿// ChartApp/hermes-engine/src/ingestion/mod.rs
 pub mod chunker;
 pub mod crawler;
 pub mod hash_tracker;
@@ -26,7 +25,6 @@ impl<'a> IngestionPipeline<'a> {
     pub fn ingest_directory(&self, dir_path: &Path) -> Result<IngestionReport> {
         let files = crawler::crawl_directory(dir_path)?;
 
-        // Collect all crawled paths for stale-node cleanup later (Task 3.4)
         let crawled_paths: HashSet<String> = files
             .iter()
             .map(|p| p.to_string_lossy().to_string())
@@ -37,7 +35,6 @@ impl<'a> IngestionPipeline<'a> {
             ..Default::default()
         };
 
-        // Serial pass: identify which files need re-ingestion
         let mut to_ingest: Vec<&PathBuf> = Vec::new();
         for file_path in &files {
             let path_str = file_path.to_string_lossy().to_string();
@@ -48,8 +45,6 @@ impl<'a> IngestionPipeline<'a> {
             }
         }
 
-        // Task 3.2: Parallel ingestion — file reads and chunk processing run in parallel.
-        // DB writes are serialized through the existing Arc<Mutex<Connection>>.
         let ingest_results: Vec<(String, Result<usize>)> = to_ingest
             .par_iter()
             .map(|file_path| {
@@ -59,7 +54,6 @@ impl<'a> IngestionPipeline<'a> {
             })
             .collect();
 
-        // Serial pass: aggregate results and update file-level hashes
         for (path_str, result) in ingest_results {
             match result {
                 Ok(count) => {
@@ -75,13 +69,11 @@ impl<'a> IngestionPipeline<'a> {
             }
         }
 
-        // Task 3.4: Stale node cleanup — remove DB entries for deleted/moved files
         self.cleanup_stale_nodes(&crawled_paths)?;
 
         Ok(report)
     }
 
-    /// Task 3.4: Delete nodes for files no longer present on the filesystem.
     fn cleanup_stale_nodes(&self, crawled_paths: &HashSet<String>) -> Result<()> {
         let db_paths = self.graph.get_all_file_paths()?;
         for stale_path in db_paths.difference(crawled_paths) {
@@ -113,7 +105,6 @@ impl<'a> IngestionPipeline<'a> {
         let mut created = 1;
 
         for chunk in &chunks {
-            // Task 2.2: Per-chunk hash dedup — skip re-inserting unchanged chunks
             let chunk_key = format!("{}::{}", path_str, chunk.name);
             let chunk_hash = hash_tracker::compute_hash(&chunk.content);
 
@@ -221,12 +212,10 @@ mod tests {
         let graph = make_graph_for(&engine);
         let pipeline = IngestionPipeline::new(&graph);
 
-        // First index
         pipeline.ingest_directory(dir.path()).unwrap();
         let paths_after_first = graph.get_all_file_paths().unwrap();
         assert!(!paths_after_first.is_empty());
 
-        // Delete the file and re-index
         std::fs::remove_file(&file).unwrap();
         pipeline.ingest_directory(dir.path()).unwrap();
         let paths_after_second = graph.get_all_file_paths().unwrap();

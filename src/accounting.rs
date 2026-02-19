@@ -1,4 +1,3 @@
-﻿// ChartApp/hermes-engine/src/accounting.rs
 use anyhow::Result;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -57,9 +56,6 @@ impl Accountant {
         self.get_stats_since(None)
     }
 
-    /// Task 2.3: Filter stats to a time window.
-    /// `since` → only include rows where `created_at >= now - since`.
-    /// `None` → all-time (backward compat with `get_cumulative_stats`).
     pub fn get_stats_since(&self, since: Option<Duration>) -> Result<CumulativeStats> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -115,7 +111,6 @@ impl Accountant {
         Ok(stats)
     }
 
-    /// Returns stats scoped to the current session (process invocation) only.
     pub fn get_session_stats(&self) -> Result<CumulativeStats> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let mut stmt = conn.prepare(
@@ -150,8 +145,6 @@ impl Accountant {
     }
 }
 
-/// Task 2.3: Parses --since flag values into a Duration.
-/// Accepted: "24h", "7d", "30d", "all" (→ None = no filter).
 pub fn parse_since_duration(s: &str) -> Option<Duration> {
     match s.trim().to_lowercase().as_str() {
         "all" => None,
@@ -190,7 +183,6 @@ mod tests {
         assert_eq!(stats.cumulative_savings_tokens, 25250);
         assert!(stats.cumulative_savings_pct > 90.0);
 
-        // Session stats should match cumulative for a fresh in-memory engine
         let session = acct.get_session_stats().unwrap();
         assert_eq!(session.total_queries, 2);
         assert_eq!(session.cumulative_savings_tokens, 25250);
@@ -216,7 +208,6 @@ mod tests {
 
         acct.record_query("q1", 100, 0, 5000).unwrap();
 
-        // Since Duration::from_secs(3600) should include the row just inserted
         let stats = acct.get_stats_since(Some(Duration::from_secs(3600))).unwrap();
         assert_eq!(stats.total_queries, 1);
     }

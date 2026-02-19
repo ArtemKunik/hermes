@@ -1,4 +1,3 @@
-﻿// ChartApp/hermes-engine/src/search/fts.rs
 use crate::graph::{KnowledgeGraph, Node};
 use crate::search::{SearchResult, SearchTier};
 use anyhow::Result;
@@ -7,8 +6,6 @@ const FTS_LIMIT: usize = 20;
 const STRATEGY_MIN_RESULTS: usize = 3;
 const MAX_QUERY_WORDS: usize = 10;
 
-/// Task 2.1: Three-strategy FTS with phrase → AND-prefix → OR fallback.
-/// Truncates to first 10 meaningful words to avoid degenerate queries on long strings.
 pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResult>> {
     let words: Vec<&str> = query
         .split_whitespace()
@@ -25,14 +22,12 @@ pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResul
         return Ok(to_search_results(graph.fts_search(&single, FTS_LIMIT)?));
     }
 
-    // Strategy 1: Exact phrase match — highest precision
     let phrase_query = format!("\"{}\"", words.join(" "));
     let s1 = graph.fts_search(&phrase_query, FTS_LIMIT)?;
     if s1.len() >= STRATEGY_MIN_RESULTS {
         return Ok(to_search_results(s1));
     }
 
-    // Strategy 2: AND-prefix match — good recall for multi-token queries
     let and_query = words
         .iter()
         .map(|w| format!("\"{}\"*", w))
@@ -43,7 +38,6 @@ pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResul
         return Ok(to_search_results(s2));
     }
 
-    // Strategy 3: OR fallback — maximum recall
     let or_query = words
         .iter()
         .map(|w| format!("\"{w}\""))

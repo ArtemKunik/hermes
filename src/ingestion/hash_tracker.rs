@@ -1,4 +1,3 @@
-﻿// ChartApp/hermes-engine/src/ingestion/hash_tracker.rs
 use anyhow::Result;
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
@@ -46,8 +45,6 @@ impl<'a> HashTracker<'a> {
         Ok(())
     }
 
-    /// Task 2.2: Returns true if the chunk's content hash matches what is stored.
-    /// `chunk_key` is a stable identifier combining file_path + chunk name.
     pub fn is_chunk_unchanged(&self, chunk_key: &str, current_hash: &str) -> Result<bool> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let stored: Option<String> = conn
@@ -60,7 +57,6 @@ impl<'a> HashTracker<'a> {
         Ok(stored.as_deref() == Some(current_hash))
     }
 
-    /// Task 2.2: Persist the chunk hash so subsequent ingestion runs can skip unchanged chunks.
     pub fn update_chunk_hash(&self, chunk_key: &str, hash: &str) -> Result<()> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         conn.execute(

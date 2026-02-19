@@ -1,4 +1,3 @@
-﻿// ChartApp/hermes-engine/src/temporal.rs
 use anyhow::Result;
 use chrono::Utc;
 use rusqlite::{params, Connection};

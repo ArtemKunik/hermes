@@ -1,5 +1,3 @@
-﻿// tools/hermes-engine/src/bin/hermes.rs
-// CLI entry point: index | search | fetch | fact | facts | stats | --stdio (MCP)
 use anyhow::{bail, Result};
 use hermes_engine::{
     accounting::{parse_since_duration, Accountant},
@@ -22,7 +20,6 @@ fn main() -> Result<()> {
     let (engine, project_root) = open_engine()?;
     let command = args[1].as_str();
 
-    // MCP stdio mode: VS Code spawns us directly as an MCP server.
     if command == "--stdio" {
         return mcp_server::run(&engine, &project_root);
     }
@@ -56,7 +53,6 @@ fn main() -> Result<()> {
             cmd_list_facts(&engine, filter)
         }
         "stats" => {
-            // Task 2.3: support optional --since <duration> flag (24h, 7d, 30d, all)
             let since_arg = args.get(2).map(String::as_str);
             cmd_stats(&engine, since_arg)
         }
@@ -67,9 +63,6 @@ fn main() -> Result<()> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Engine bootstrap
-// ---------------------------------------------------------------------------
 
 fn open_engine() -> Result<(HermesEngine, PathBuf)> {
     let project_root = env::var("HERMES_PROJECT_ROOT")
@@ -90,15 +83,11 @@ fn open_engine() -> Result<(HermesEngine, PathBuf)> {
     Ok((engine, project_root))
 }
 
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
 
 fn cmd_index(engine: &HermesEngine, project_root: &Path) -> Result<()> {
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let pipeline = IngestionPipeline::new(&graph);
     let report = pipeline.ingest_directory(project_root)?;
-    // Task 1.3: Invalidate search cache so stale results are not returned
     engine.invalidate_search_cache();
     let output = serde_json::json!({
         "total_files":  report.total_files,
@@ -116,7 +105,6 @@ fn cmd_search(engine: &HermesEngine, query: &str) -> Result<()> {
     let search = SearchEngine::new(&graph, engine.search_cache());
     let response = search.search(query, 10, &SearchMode::Smart)?;
 
-    // Record to accounting: pointer tokens used, 0 tokens fetched (search only)
     let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
     acct.record_query(
         query,
@@ -137,8 +125,6 @@ fn cmd_fetch(engine: &HermesEngine, node_id: &str) -> Result<()> {
         bail!("node not found: {node_id}");
     };
 
-    // Record to accounting: 0 pointer tokens, actual fetched tokens, with traditional estimate
-    // Invariant: traditional_est = fetched_tokens * 15 (same multiplier as PointerResponse)
     let traditional_estimate = response.token_count * 15;
     let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
     acct.record_query(node_id, 0, response.token_count, traditional_estimate)?;
@@ -167,7 +153,6 @@ fn cmd_stats(engine: &HermesEngine, since_arg: Option<&str>) -> Result<()> {
     let acct       = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
     let session    = acct.get_session_stats()?;
 
-    // Task 2.3: Apply --since filter to cumulative stats when specified
     let since_dur = since_arg.and_then(parse_since_duration);
     let cumulative = acct.get_stats_since(since_dur)?;
 
@@ -198,9 +183,6 @@ fn cmd_stats(engine: &HermesEngine, since_arg: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Help
-// ---------------------------------------------------------------------------
 
 fn print_usage() {
     eprintln!(

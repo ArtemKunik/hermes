@@ -1,18 +1,13 @@
-﻿// ChartApp/hermes-engine/src/graph_queries.rs
 use crate::graph::{KnowledgeGraph, Node, NodeType};
 use anyhow::Result;
 use rusqlite::params;
 use std::collections::HashSet;
 
 impl KnowledgeGraph {
-    /// Task 1.1: SQL-backed literal search using LOWER(name) index.
-    /// Tries prefix match first (index-friendly), falls back to contains.
-    /// Never calls get_all_nodes().
     pub fn literal_search_by_name(&self, query: &str) -> Result<Vec<Node>> {
         let conn = self.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let query_lower = query.to_lowercase();
 
-        // Prefix match: uses idx_nodes_name_lower for O(log n) lookup
         let prefix_pattern = format!("{}%", query_lower);
         let mut stmt = conn.prepare(
             "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash
@@ -26,7 +21,6 @@ impl KnowledgeGraph {
             return Ok(prefix_results);
         }
 
-        // Fallback: mid-string contains match
         let contains_pattern = format!("%{}%", query_lower);
         let mut stmt2 = conn.prepare(
             "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash
@@ -38,7 +32,6 @@ impl KnowledgeGraph {
         Ok(results)
     }
 
-    /// Task 3.4: Returns all distinct file paths stored for this project (file-type nodes).
     pub fn get_all_file_paths(&self) -> Result<HashSet<String>> {
         let conn = self.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let mut stmt = conn.prepare(
@@ -51,7 +44,6 @@ impl KnowledgeGraph {
         Ok(paths)
     }
 
-    /// Task 3.4: Delete all nodes, FTS entries, and edges for a given file path.
     pub fn delete_nodes_for_file(&self, file_path: &str) -> Result<()> {
         let conn = self.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         conn.execute(

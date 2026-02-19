@@ -1,10 +1,3 @@
-﻿// tools/hermes-engine/src/mcp_server.rs
-//
-// Native MCP JSON-RPC 2.0 stdio server.
-// Protocol: one JSON object per line on stdin/stdout, flushed after each write.
-//
-// Supported methods: initialize, notifications/initialized, tools/list, tools/call
-// Tools: hermes_search, hermes_fetch, hermes_index, hermes_stats, hermes_fact, hermes_facts
 
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -20,15 +13,7 @@ use crate::{
     HermesEngine,
 };
 
-// ---------------------------------------------------------------------------
-// Auto-reindex background thread
-// ---------------------------------------------------------------------------
 
-/// Spawn a background thread that periodically re-indexes the project.
-///
-/// Interval is controlled by `HERMES_AUTO_INDEX_INTERVAL_SECS` (default: 300).
-/// Set to `0` to disable.
-/// Logs progress to stderr so it does not interfere with the MCP stdio protocol.
 fn spawn_auto_reindex(engine: HermesEngine, project_root: PathBuf) {
     let interval_secs = std::env::var("HERMES_AUTO_INDEX_INTERVAL_SECS")
         .ok()
@@ -57,9 +42,7 @@ fn spawn_auto_reindex(engine: HermesEngine, project_root: PathBuf) {
     });
 }
 
-/// Run the MCP stdio server until stdin is closed.
 pub fn run(engine: &HermesEngine, project_root: &Path) -> Result<()> {
-    // Start background auto-reindex thread before entering the stdin loop.
     spawn_auto_reindex(engine.clone(), project_root.to_path_buf());
 
     let stdin = io::stdin();
@@ -84,7 +67,6 @@ pub fn run(engine: &HermesEngine, project_root: &Path) -> Result<()> {
         let method = msg["method"].as_str().unwrap_or("");
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
 
-        // Client notifications carry no id and require no response.
         if method.starts_with("notifications/") {
             continue;
         }
@@ -98,9 +80,6 @@ pub fn run(engine: &HermesEngine, project_root: &Path) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Dispatch
-// ---------------------------------------------------------------------------
 
 fn dispatch(
     engine: &HermesEngine,
@@ -116,9 +95,6 @@ fn dispatch(
     }
 }
 
-// ---------------------------------------------------------------------------
-// MCP method handlers
-// ---------------------------------------------------------------------------
 
 fn handle_initialize() -> Value {
     json!({
@@ -216,9 +192,6 @@ fn handle_tool_call(engine: &HermesEngine, project_root: &Path, params: &Value) 
     Ok(json!({ "content": [{ "type": "text", "text": text }] }))
 }
 
-// ---------------------------------------------------------------------------
-// Tool implementations (return pretty-printed JSON strings)
-// ---------------------------------------------------------------------------
 
 fn tool_search(engine: &HermesEngine, query: &str) -> Result<String> {
     let graph  = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
@@ -244,7 +217,6 @@ fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> {
     let graph    = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let pipeline = IngestionPipeline::new(&graph);
     let report   = pipeline.ingest_directory(project_root)?;
-    // Task 1.3: Invalidate search cache so stale results are not returned
     engine.invalidate_search_cache();
     Ok(serde_json::to_string_pretty(&json!({
         "total_files": report.total_files, "indexed": report.indexed,
@@ -289,9 +261,6 @@ fn tool_list_facts(engine: &HermesEngine, filter: Option<&str>) -> Result<String
     Ok(serde_json::to_string_pretty(&facts)?)
 }
 
-// ---------------------------------------------------------------------------
-// Wire helpers — write JSON-RPC envelope to stdout
-// ---------------------------------------------------------------------------
 
 fn write_ok(out: &mut impl Write, id: &Value, result: Value) -> Result<()> {
     let envelope = json!({ "jsonrpc": "2.0", "id": id, "result": result });

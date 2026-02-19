@@ -1,4 +1,3 @@
-﻿// ChartApp/hermes-engine/src/schema.rs
 use anyhow::Result;
 use rusqlite::Connection;
 
@@ -10,15 +9,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Idempotent: creates a case-insensitive index on LOWER(name) for fast L0 literal search.
 fn add_name_lower_index(conn: &Connection) {
     let _ = conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_nodes_name_lower ON nodes (LOWER(name));",
     );
 }
 
-/// Idempotent: adds session_id column to existing accounting tables.
-/// Silently ignores the "duplicate column" error on re-runs.
 fn add_accounting_session_id(conn: &Connection) {
     let _ = conn.execute_batch(
         "ALTER TABLE accounting ADD COLUMN session_id TEXT NOT NULL DEFAULT '';",

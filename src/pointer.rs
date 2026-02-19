@@ -1,4 +1,3 @@
-﻿// ChartApp/hermes-engine/src/pointer.rs
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,15 +38,13 @@ pub struct FetchResponse {
 }
 
 impl Pointer {
-    /// Task 3.1: Word-count based token estimation (more accurate than byte / 4).
     pub fn estimate_token_count(&self) -> u64 {
         let text = format!(
             "{} {} {} {}",
             self.source, self.chunk, self.lines, self.summary
         );
         let word_count = text.split_whitespace().count() as u64;
-        // ~0.75 words per token → tokens = words * 4 / 3
-        (word_count * 4).div_ceil(3) + 2  // +2 overhead for id/type fields
+        (word_count * 4).div_ceil(3) + 2
     }
 }
 

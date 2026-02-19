@@ -1,0 +1,68 @@
+flowchart LR
+    subgraph AI["🤖 AI Assistants"]
+        direction TB
+        A1["GitHub Copilot"]
+        A2["Claude"]
+        A3["Cursor"]
+    end
+
+    subgraph Hermes["⚡ Hermes Engine  (Rust)"]
+        direction TB
+        MCP["MCP Server\nJSON-RPC over stdio"]
+
+        subgraph Index["📥 Indexing"]
+            I["Crawler → Chunker\nHash-based change detection\nParallel ingestion  (Rayon)"]
+        end
+
+        subgraph Graph["🕸️ Knowledge Graph"]
+            G["Nodes & Edges\nFiles · Symbols · Chunks"]
+        end
+
+        subgraph SearchBlock["🔍 Hybrid Search  (3 tiers)"]
+            direction LR
+            S1["L0\nLiteral"]
+            S2["L1\nFull-Text\nFTS5"]
+            S3["L2\nVector\nSimilarity"]
+            S1 --> S2 --> S3
+        end
+
+        subgraph RAG["🪄 Pointer RAG"]
+            P["Return references\nnot full content\nFetch on demand"]
+            T["Token savings\naccounting"]
+        end
+
+        subgraph Facts["📌 Temporal Facts"]
+            F["Decisions · Learnings\nConstraints · API Contracts\nTime-scoped persistence"]
+        end
+
+        MCP --> Index
+        MCP --> SearchBlock
+        MCP --> Facts
+        Index --> Graph
+        SearchBlock --> Graph
+        SearchBlock --> RAG
+    end
+
+    subgraph Storage["🗄️ SQLite  (single file)"]
+        DB["Graph nodes & edges\nFTS5 virtual tables\nVector columns\nFact store"]
+    end
+
+    subgraph Ext["☁️ External"]
+        EM["Embedding Model\nOllama · OpenAI\nany OAI-compatible API"]
+        FS["Workspace\nFile System"]
+    end
+
+    AI -- "MCP stdio\nJSON-RPC 2.0" --> MCP
+    Hermes <--> Storage
+    S3 --> EM
+    Index --> FS
+
+    classDef aiBox fill:#1a1a2e,stroke:#e94560,color:#fff
+    classDef hermesBox fill:#16213e,stroke:#0f3460,color:#fff
+    classDef storageBox fill:#0f3460,stroke:#533483,color:#fff
+    classDef extBox fill:#533483,stroke:#e94560,color:#fff
+
+    class A1,A2,A3 aiBox
+    class MCP,I,G,S1,S2,S3,P,T,F hermesBox
+    class DB storageBox
+    class EM,FS extBox
