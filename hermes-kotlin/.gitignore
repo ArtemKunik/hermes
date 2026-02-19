@@ -1,6 +1,0 @@
-.gradle/
-build/
-bin/
-*.class
-*.jar
-local.properties
