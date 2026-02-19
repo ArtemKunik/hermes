@@ -1,3 +1,28 @@
 /target
 **/*.rs.bk
 Cargo.lock
+
+# User-requested ignores
+.agent/
+.vscode/*
+!.vscode/mcp.json
+tools/
+
+# Hermes database files
+.hermes.db
+.hermes.db-shm
+.hermes.db-wal
+
+# hermes-kotlin (Gradle / Kotlin)
+hermes-kotlin/.gradle/
+hermes-kotlin/build/
+hermes-kotlin/bin/
+
+# IDE & editor files
+hermes-kotlin/.idea/
+hermes-kotlin/*.iml
+hermes-kotlin/out/
+hermes-kotlin/.classpath
+hermes-kotlin/.project
+hermes-kotlin/.settings/
+hermes-kotlin/local.properties

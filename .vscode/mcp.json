@@ -1,0 +1,22 @@
+{
+    "servers": {
+        "excalidraw": {
+            "type": "stdio",
+            "command": "${workspaceFolder}/tools/excalidraw-mcp/node_modules/.bin/bun.exe",
+            "args": ["${workspaceFolder}/tools/excalidraw-mcp/dist/index.js", "--stdio"]
+        },
+        "ado": {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["-y", "@azure-devops/mcp", "CCApp2026", "-d", "core", "pipelines"]
+        },
+        "hermes": {
+            "type": "stdio",
+            "command": "java",
+            "args": ["-jar", "${workspaceFolder}/hermes-kotlin/build/libs/hermes-engine-0.1.0.jar", "--stdio"],
+            "env": {
+                "HERMES_PROJECT_ROOT": "${workspaceFolder}"
+            }
+        }
+    }
+}
