@@ -53,10 +53,14 @@ enum Commands {
         filter: Option<String>,
     },
 
-    /// [--since <duration>] - Show token savings (duration: 24h, 7d, 30d, all)
+    /// [duration] or [--since <duration>] - Show token savings (duration: 24h, 7d, 30d, all)
     Stats {
-        #[arg(long)]
+        /// Positional duration kept for backward compatibility (e.g., `hermes stats 24h`)
         since: Option<String>,
+
+        /// Explicit duration flag (e.g., `hermes stats --since 24h`)
+        #[arg(long = "since")]
+        since_flag: Option<String>,
     },
 }
 
@@ -75,7 +79,10 @@ fn main() -> Result<()> {
         Commands::Fetch { node_id } => cmd_fetch(&engine, &node_id),
         Commands::Fact { fact_type, content } => cmd_add_fact(&engine, &fact_type, &content),
         Commands::Facts { filter } => cmd_list_facts(&engine, filter.as_deref()),
-        Commands::Stats { since } => cmd_stats(&engine, since.as_deref()),
+        Commands::Stats { since, since_flag } => {
+            let effective_since = since_flag.as_deref().or(since.as_deref());
+            cmd_stats(&engine, effective_since)
+        }
     }
 }
 
