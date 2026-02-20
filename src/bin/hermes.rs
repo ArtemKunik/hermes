@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use clap::{Parser, Subcommand};
 use hermes_engine::{
     accounting::{parse_since_duration, Accountant},
     graph::KnowledgeGraph,
@@ -8,61 +9,82 @@ use hermes_engine::{
     temporal::{FactType, TemporalStore},
     HermesEngine,
 };
-use std::{env, path::{Path, PathBuf}};
+use std::{env, path::PathBuf};
+
+#[derive(Parser)]
+#[command(name = "hermes", about = "Token-efficient code navigation", arg_required_else_help = true, after_help = "\
+Environment variables:
+  HERMES_PROJECT_ROOT             Root directory to index (default: cwd)
+  HERMES_DB_PATH                  SQLite DB path (default: <project_root>/.hermes.db)
+  HERMES_AUTO_INDEX_INTERVAL_SECS Re-index interval when running as MCP server
+                                  (default: 300 = 5 min; 0 = disabled)")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Run as MCP JSON-RPC 2.0 stdio server
+    #[arg(long)]
+    stdio: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Re-index the project (run when files change)
+    Index,
+
+    /// Search codebase; returns pointers (no full content)
+    Search {
+        /// The search query
+        query: String,
+    },
+
+    /// Fetch full content for a specific pointer
+    Fetch {
+        /// The node ID to fetch
+        node_id: String,
+    },
+
+    /// Record a decision/learning
+    Fact {
+        /// Fact type: architecture, decision, learning, constraint, error_pattern, api_contract
+        fact_type: String,
+
+        /// The fact content
+        content: String,
+    },
+
+    /// List active facts, optionally filtered by type
+    Facts {
+        /// Filter by fact type
+        filter: Option<String>,
+    },
+
+    /// Show token savings statistics
+    Stats {
+        /// Time filter: 24h, 7d, 30d, all
+        #[arg(long)]
+        since: Option<String>,
+    },
+}
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        print_usage();
-        return Ok(());
-    }
+    let cli = Cli::parse();
 
     let (engine, project_root) = open_engine()?;
-    let command = args[1].as_str();
 
-    if command == "--stdio" {
+    if cli.stdio {
         return mcp_server::run(&engine, &project_root);
     }
 
-    match command {
-        "index" => cmd_index(&engine, &project_root),
-        "search" => {
-            let query = args.get(2).map(String::as_str).unwrap_or("");
-            if query.is_empty() {
-                bail!("usage: hermes search <query>");
-            }
-            cmd_search(&engine, query)
-        }
-        "fetch" => {
-            let id = args.get(2).map(String::as_str).unwrap_or("");
-            if id.is_empty() {
-                bail!("usage: hermes fetch <node_id>");
-            }
-            cmd_fetch(&engine, id)
-        }
-        "fact" => {
-            let fact_type = args.get(2).map(String::as_str).unwrap_or("");
-            let content = args.get(3).map(String::as_str).unwrap_or("");
-            if fact_type.is_empty() || content.is_empty() {
-                bail!("usage: hermes fact <type> <content>");
-            }
-            cmd_add_fact(&engine, fact_type, content)
-        }
-        "facts" => {
-            let filter = args.get(2).map(String::as_str);
-            cmd_list_facts(&engine, filter)
-        }
-        "stats" => {
-            let since_arg = args.get(2).map(String::as_str);
-            cmd_stats(&engine, since_arg)
-        }
-        unknown => {
-            print_usage();
-            bail!("unknown command: {unknown}");
-        }
+    match cli.command.unwrap() {
+        Commands::Index => cmd_index(&engine, &project_root),
+        Commands::Search { query } => cmd_search(&engine, &query),
+        Commands::Fetch { node_id } => cmd_fetch(&engine, &node_id),
+        Commands::Fact { fact_type, content } => cmd_add_fact(&engine, &fact_type, &content),
+        Commands::Facts { filter } => cmd_list_facts(&engine, filter.as_deref()),
+        Commands::Stats { since } => cmd_stats(&engine, since.as_deref()),
     }
 }
-
 
 fn open_engine() -> Result<(HermesEngine, PathBuf)> {
     let project_root = env::var("HERMES_PROJECT_ROOT")
@@ -83,8 +105,7 @@ fn open_engine() -> Result<(HermesEngine, PathBuf)> {
     Ok((engine, project_root))
 }
 
-
-fn cmd_index(engine: &HermesEngine, project_root: &Path) -> Result<()> {
+fn cmd_index(engine: &HermesEngine, project_root: &std::path::Path) -> Result<()> {
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let pipeline = IngestionPipeline::new(&graph);
     let report = pipeline.ingest_directory(project_root)?;
@@ -150,8 +171,8 @@ fn cmd_list_facts(engine: &HermesEngine, filter: Option<&str>) -> Result<()> {
 }
 
 fn cmd_stats(engine: &HermesEngine, since_arg: Option<&str>) -> Result<()> {
-    let acct       = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
-    let session    = acct.get_session_stats()?;
+    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let session = acct.get_session_stats()?;
 
     let since_dur = since_arg.and_then(parse_since_duration);
     let cumulative = acct.get_stats_since(since_dur)?;
@@ -181,26 +202,4 @@ fn cmd_stats(engine: &HermesEngine, since_arg: Option<&str>) -> Result<()> {
     });
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
-}
-
-
-fn print_usage() {
-    eprintln!(
-        "hermes — token-efficient code navigation\n\n\
-         USAGE: hermes <command> [args]\n\n\
-         Commands:\n\
-           index               Re-index the project (run when files change)\n\
-           search <query>      Search codebase; returns pointers (no full content)\n\
-           fetch <node_id>     Fetch full content for a specific pointer\n\
-           fact <type> <text>  Record a decision/learning (types: architecture, decision,\n\
-                               learning, constraint, error_pattern, api_contract)\n\
-           facts [type]        List active facts, optionally filtered by type\n\
-           stats [--since <duration>]  Show token savings (--since: 24h, 7d, 30d, all)\n\
-           --stdio             Run as MCP JSON-RPC 2.0 stdio server (for VS Code Copilot)\n\n\
-         Env vars:\n\
-           HERMES_PROJECT_ROOT             Root directory to index (default: cwd)\n\
-           HERMES_DB_PATH                  SQLite DB path (default: <project_root>/.hermes.db)\n\
-           HERMES_AUTO_INDEX_INTERVAL_SECS Re-index interval when running as MCP server\n\
-                                           (default: 300 = 5 min; 0 = disabled)"
-    );
 }
