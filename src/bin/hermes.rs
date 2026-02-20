@@ -32,36 +32,29 @@ enum Commands {
     /// Re-index the project (run when files change)
     Index,
 
-    /// Search codebase; returns pointers (no full content)
+    /// <query> - Search codebase; returns pointers (no full content)
     Search {
-        /// The search query
         query: String,
     },
 
-    /// Fetch full content for a specific pointer
+    /// <node_id> - Fetch full content for a specific pointer
     Fetch {
-        /// The node ID to fetch
         node_id: String,
     },
 
-    /// Record a decision/learning
+    /// <type> <text> - Record a decision/learning (types: architecture, decision, learning, constraint, error_pattern, api_contract)
     Fact {
-        /// Fact type: architecture, decision, learning, constraint, error_pattern, api_contract
         fact_type: String,
-
-        /// The fact content
         content: String,
     },
 
-    /// List active facts, optionally filtered by type
+    /// [type] - List active facts, optionally filtered by type
     Facts {
-        /// Filter by fact type
         filter: Option<String>,
     },
 
-    /// Show token savings statistics
+    /// [--since <duration>] - Show token savings (duration: 24h, 7d, 30d, all)
     Stats {
-        /// Time filter: 24h, 7d, 30d, all
         #[arg(long)]
         since: Option<String>,
     },
