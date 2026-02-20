@@ -1,0 +1,40 @@
+flowchart TD
+    Q([User Query]) --> S[Search returns N matching Pointers]
+
+    subgraph per_pointer["Per Pointer  (repeated × N)"]
+        direction TB
+        P1["Concatenate fields:\nsource + chunk + lines + summary"]
+        P2["word_count = text.split_whitespace().count()"]
+        P3["pointer_tokens = ⌈word_count × 4 / 3⌉ + 2\n≈ words → BPE tokens + overhead"]
+        P1 --> P2 --> P3
+    end
+
+    S --> per_pointer
+
+    per_pointer --> SUM["pointer_tokens_total = Σ pointer_tokens\n(all N pointers)"]
+
+    subgraph fetch["Optional: hermes_fetch  (0 or more calls)"]
+        direction TB
+        F1["Fetch actual node content from DB"]
+        F2["fetched_tokens = actual content token count\n(recorded per fetch call)"]
+        F1 --> F2
+    end
+
+    Q --> fetch
+
+    SUM --> TOTAL["total_tokens_used =\npointer_tokens_total + fetched_tokens"]
+    fetch --> TOTAL
+
+    SUM --> TRAD["traditional_rag_estimate =\npointer_tokens_total × 15\n\n(models a naive RAG that would dump\n15× more raw context per result)"]
+
+    TOTAL --> SAVED["tokens_saved =\ntraditional_rag_estimate − total_tokens_used"]
+    TRAD --> SAVED
+
+    SAVED --> PCT["savings_pct =\n(1 − total_tokens_used / traditional_rag_estimate) × 100\nclamped to ≥ 0%"]
+
+    PCT --> OUT[("Stored in accounting DB\nper session_id = today's date\n─────\ntoday stats / cumulative stats")]
+
+    style per_pointer fill:#1e3a5f,stroke:#4a90d9,color:#e0e0e0
+    style fetch fill:#3a2d1e,stroke:#d9934a,color:#e0e0e0
+    style TRAD fill:#2d1e3a,stroke:#a94ad9,color:#e0e0e0
+    style PCT fill:#1e3a2d,stroke:#4ad94a,color:#e0e0e0

@@ -143,6 +143,45 @@ impl Accountant {
         })?;
         Ok(stats)
     }
+
+    /// Stats for the current calendar day (local time, 00:00–24:00).
+    /// More robust than session_stats when a long-running process crosses
+    /// midnight, because it uses the SQLite `date('now','localtime')` function
+    /// rather than the session_id string that was set at startup.
+    pub fn get_today_stats(&self) -> Result<CumulativeStats> {
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(pointer_tokens), 0),
+                    COALESCE(SUM(fetched_tokens), 0),
+                    COALESCE(SUM(traditional_est), 0)
+             FROM accounting
+             WHERE project_id = ?1
+               AND date(created_at, 'localtime') = date('now', 'localtime')",
+        )?;
+        let stats = stmt.query_row(params![self.project_id], |row| {
+            let total_queries: u64 = row.get(0)?;
+            let ptr_tokens: u64 = row.get(1)?;
+            let fetch_tokens: u64 = row.get(2)?;
+            let trad_est: u64 = row.get(3)?;
+            let actual = ptr_tokens + fetch_tokens;
+            let saved = trad_est.saturating_sub(actual);
+            let pct = if trad_est > 0 {
+                (saved as f64 / trad_est as f64) * 100.0
+            } else {
+                0.0
+            };
+            Ok(CumulativeStats {
+                total_queries,
+                total_pointer_tokens: ptr_tokens,
+                total_fetched_tokens: fetch_tokens,
+                total_traditional_estimate: trad_est,
+                cumulative_savings_tokens: saved,
+                cumulative_savings_pct: pct,
+            })
+        })?;
+        Ok(stats)
+    }
 }
 
 pub fn parse_since_duration(s: &str) -> Option<Duration> {

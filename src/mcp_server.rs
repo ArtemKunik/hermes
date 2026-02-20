@@ -227,16 +227,16 @@ fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> {
 
 fn tool_stats(engine: &HermesEngine) -> Result<String> {
     let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
-    let session    = acct.get_session_stats()?;
+    let today      = acct.get_today_stats()?;
     let cumulative = acct.get_cumulative_stats()?;
     Ok(serde_json::to_string_pretty(&json!({
-        "session": {
-            "total_queries":            session.total_queries,
-            "pointer_tokens_used":      session.total_pointer_tokens,
-            "fetched_tokens_used":      session.total_fetched_tokens,
-            "traditional_rag_estimate": session.total_traditional_estimate,
-            "tokens_saved":             session.cumulative_savings_tokens,
-            "savings_pct":              format!("{:.1}%", session.cumulative_savings_pct),
+        "today": {
+            "total_queries":            today.total_queries,
+            "pointer_tokens_used":      today.total_pointer_tokens,
+            "fetched_tokens_used":      today.total_fetched_tokens,
+            "traditional_rag_estimate": today.total_traditional_estimate,
+            "tokens_saved":             today.cumulative_savings_tokens,
+            "savings_pct":              format!("{:.1}%", today.cumulative_savings_pct),
         },
         "cumulative": {
             "total_queries":            cumulative.total_queries,
