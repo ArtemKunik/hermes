@@ -1,8 +1,13 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-const SUPPORTED_EXTENSIONS: &[&str] =
-    &["rs", "tsx", "ts", "jsx", "js", "md", "toml", "json", "css"];
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "rs", "tsx", "ts", "jsx", "js", "md", "toml", "json", "css",
+    // scripting / config
+    "py", "yml", "yaml", "sh", "ps1",
+    // infrastructure
+    "tf",
+];
 
 const IGNORED_DIRS: &[&str] = &[
     "target",
@@ -93,6 +98,13 @@ mod tests {
         assert!(is_supported_file(Path::new("foo.rs")));
         assert!(is_supported_file(Path::new("bar.tsx")));
         assert!(is_supported_file(Path::new("doc.md")));
+        // new extensions
+        assert!(is_supported_file(Path::new("script.py")));
+        assert!(is_supported_file(Path::new("azure-pipelines-ci.yml")));
+        assert!(is_supported_file(Path::new("docker-compose.yaml")));
+        assert!(is_supported_file(Path::new("deploy.sh")));
+        assert!(is_supported_file(Path::new("check-lint.ps1")));
+        assert!(is_supported_file(Path::new("main.tf")));
         assert!(!is_supported_file(Path::new("image.png")));
         assert!(!is_supported_file(Path::new("data.csv")));
     }
