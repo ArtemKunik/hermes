@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+set -eu
+
+# Git passes: <previous HEAD> <new HEAD> <is_branch_checkout>
+# Run only for branch switches (1), not individual file checkouts (0).
+is_branch_checkout="${3:-0}"
+if [ "$is_branch_checkout" != "1" ]; then
+  exit 0
+fi
+
+"$(dirname "$0")/reindex.sh"

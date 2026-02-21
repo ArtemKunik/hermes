@@ -52,6 +52,39 @@ src/
 cargo build --release
 ```
 
+### Optional: Auto-Reindex via Git Hooks
+
+To keep the index fresh after branch switches and merges, use repository hooks:
+
+```bash
+git config core.hooksPath .githooks
+chmod +x .githooks/reindex.sh .githooks/post-merge .githooks/post-checkout
+```
+
+On Windows (PowerShell):
+
+```powershell
+git config core.hooksPath .githooks
+```
+
+`chmod` is not required on Windows when using Git for Windows.
+
+What this enables:
+- `post-merge`: runs `hermes index` after merge/pull
+- `post-checkout`: runs `hermes index` after branch checkout
+
+You can temporarily disable hook-triggered reindex by setting:
+
+```bash
+HERMES_SKIP_HOOK_REINDEX=1
+```
+
+PowerShell equivalent:
+
+```powershell
+$env:HERMES_SKIP_HOOK_REINDEX = "1"
+```
+
 ### Run as MCP Server
 
 ```bash
