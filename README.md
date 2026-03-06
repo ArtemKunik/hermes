@@ -10,6 +10,8 @@ A Rust-native **knowledge graph engine** with pointer-based RAG (Retrieval-Augme
 - **Knowledge graph**: File and symbol relationships built from workspace crawling and chunking
 - **MCP server**: Exposes tools via the [Model Context Protocol](https://modelcontextprotocol.io/) for use with AI coding assistants (e.g. GitHub Copilot, Claude, Cursor)
 - **Token accounting**: Tracks token savings from pointer-based retrieval vs. full file reads
+- **Env-var validation**: Scans source files and config files for environment variable definitions and usages; detects typos and dead config via `hermes_validate_env` / `hermes_check_consistency`
+- **Auto-reindex**: Background thread periodically re-indexes the workspace (configurable via `HERMES_AUTO_INDEX_INTERVAL_SECS`)
 
 ## Architecture
 
@@ -26,11 +28,13 @@ src/
 ├── embedding.rs        # (Optional) Gemini embedding client — not used by default
 ├── temporal.rs         # Temporal fact store
 ├── mcp_server.rs       # MCP protocol implementation
+├── mcp_tools_validation.rs # hermes_validate_env / hermes_check_consistency tools
 ├── ingestion/
 │   ├── mod.rs          # Ingestion orchestration
 │   ├── crawler.rs      # Workspace file crawler
 │   ├── chunker.rs      # Code/text chunking
-│   └── hash_tracker.rs # File change detection
+│   ├── hash_tracker.rs # File change detection
+│   └── env_scanner.rs  # Environment variable discovery (config_registry)
 └── search/
     ├── mod.rs          # Unified search interface
     ├── fts.rs          # Full-text search (SQLite FTS5)
@@ -100,6 +104,7 @@ HERMES_PROJECT_ROOT=/path/to/your/project ./target/release/Hermes --stdio
 | `GEMINI_API_KEY` | *(unset)* | *(Optional)* Google AI API key for `EmbeddingGenerator` |
 | `GEMINI_EMBEDDING_MODEL` | `text-embedding-004` | *(Optional)* Gemini embedding model name |
 | `EMBEDDING_RPM` | `60` | *(Optional)* Embedding API rate limit (requests/min) |
+| `HERMES_AUTO_INDEX_INTERVAL_SECS` | `300` | Background reindex interval in seconds; set to `0` to disable |
 
 ## MCP Tools
 
@@ -111,6 +116,8 @@ HERMES_PROJECT_ROOT=/path/to/your/project ./target/release/Hermes --stdio
 | `hermes_fact` | Record a persistent fact (decision, learning, constraint, etc.) |
 | `hermes_facts` | List active facts, optionally filtered by type |
 | `hermes_stats` | Return cumulative token savings statistics |
+| `hermes_validate_env` | Validate an env var name against the config registry; returns Levenshtein-closest suggestions on mismatch |
+| `hermes_check_consistency` | Audit env vars for unknown (used but not defined) or unused (defined but never referenced) entries |
 
 ## VS Code Integration (MCP)
 

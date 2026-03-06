@@ -1,11 +1,3 @@
-// src/mcp_tools_validation.rs
-//
-// TRACK-040 validation tools: environment variable presence checking and
-// cross-codebase consistency reporting.
-//
-// Both tools read from the `config_registry` table which is populated during
-// `hermes_index` by the env_scanner ingestion pass.
-
 use anyhow::Result;
 use serde_json::json;
 

@@ -1,10 +1,3 @@
-// src/ingestion/env_scanner.rs
-// TRACK-040 Phase 1: Environment variable scanner for hallucination prevention.
-//
-// Scans source files for environment variable access patterns and populates
-// config_registry with discovered variables so hermes_validate_env and
-// hermes_check_consistency can catch typos and orphaned vars at agent runtime.
-
 use anyhow::Result;
 use regex::Regex;
 use rusqlite::Connection;
