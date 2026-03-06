@@ -10,15 +10,14 @@ use crate::HermesEngine;
 /// (by Levenshtein distance) so the caller can spot typos immediately.
 pub fn tool_validate_env(engine: &HermesEngine, env_var: &str) -> Result<String> {
     let conn = engine.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let project_id = engine.project_id();
 
-    let exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) FROM config_registry WHERE key = ?",
-            [env_var],
-            |row| row.get::<_, i64>(0),
-        )
-        .map(|c| c > 0)
-        .unwrap_or(false);
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM config_registry WHERE project_id = ?1 AND key = ?2",
+        rusqlite::params![project_id, env_var],
+        |row| row.get::<_, i64>(0),
+    )?;
+    let exists = count > 0;
 
     if exists {
         return Ok(serde_json::to_string_pretty(&json!({
@@ -28,9 +27,11 @@ pub fn tool_validate_env(engine: &HermesEngine, env_var: &str) -> Result<String>
     }
 
     // Collect all known keys for Levenshtein-based suggestions.
-    let mut stmt = conn.prepare("SELECT DISTINCT key FROM config_registry ORDER BY key")?;
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT key FROM config_registry WHERE project_id = ?1 ORDER BY key",
+    )?;
     let known: Vec<String> = stmt
-        .query_map([], |row| row.get(0))?
+        .query_map([project_id], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut ranked: Vec<(String, usize)> = known
@@ -62,13 +63,17 @@ pub fn tool_validate_env(engine: &HermesEngine, env_var: &str) -> Result<String>
 /// - `consistent_variables` — both defined and used
 pub fn tool_check_consistency(engine: &HermesEngine) -> Result<String> {
     let conn = engine.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let project_id = engine.project_id();
 
     let mut stmt = conn.prepare(
-        "SELECT key, is_defined, is_used FROM config_registry ORDER BY key",
+        "SELECT key, is_defined, is_used \
+         FROM config_registry \
+         WHERE project_id = ?1 \
+         ORDER BY key",
     )?;
 
     let rows: Vec<(String, bool, bool)> = stmt
-        .query_map([], |row| {
+        .query_map([project_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)? != 0,
@@ -137,8 +142,9 @@ mod tests {
         let conn = engine.db().lock().unwrap();
         for (key, is_def, is_used) in entries {
             conn.execute(
-                "INSERT INTO config_registry (key, is_defined, is_used) VALUES (?1, ?2, ?3)",
-                rusqlite::params![key, *is_def as i64, *is_used as i64],
+                "INSERT INTO config_registry (project_id, key, is_defined, is_used) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params!["test", key, *is_def as i64, *is_used as i64],
             )
             .unwrap();
         }
