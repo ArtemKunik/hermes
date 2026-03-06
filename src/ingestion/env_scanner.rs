@@ -202,27 +202,39 @@ impl EnvScanner {
 
     /// Populate config_registry with discovered vars.
     ///
+    /// The registry is rebuilt from scratch on every call (scoped to `project_id`) so that
+    /// variables removed from the repo are not left as stale entries after re-indexing.
+    ///
     /// Each key gets one row with two boolean flags — `is_defined` (seen in a .env/yaml/md
     /// definition context) and `is_used` (seen accessed in code).  Either flag flips to 1 as
-    /// new occurrences are encountered; it never resets to 0.
+    /// multiple occurrences are merged; it never resets to 0 within a single scan.
     pub fn populate_registry(
         &self,
         conn: &Connection,
-        _project_id: &str,
+        project_id: &str,
         discovered_vars: &[DiscoveredEnvVar],
     ) -> Result<()> {
+        // Clear existing entries for this project so re-indexes always reflect
+        // the current repo state rather than accumulating stale entries.
+        conn.execute(
+            "DELETE FROM config_registry WHERE project_id = ?1",
+            [project_id],
+        )?;
+
         for var in discovered_vars {
             if var.is_definition {
                 conn.execute(
-                    "INSERT INTO config_registry (key, is_defined, is_used) VALUES (?1, 1, 0)
-                     ON CONFLICT(key) DO UPDATE SET is_defined = 1",
-                    [&var.name],
+                    "INSERT INTO config_registry (project_id, key, is_defined, is_used) \
+                     VALUES (?1, ?2, 1, 0) \
+                     ON CONFLICT(project_id, key) DO UPDATE SET is_defined = 1",
+                    rusqlite::params![project_id, &var.name],
                 )?;
             } else {
                 conn.execute(
-                    "INSERT INTO config_registry (key, is_defined, is_used) VALUES (?1, 0, 1)
-                     ON CONFLICT(key) DO UPDATE SET is_used = 1",
-                    [&var.name],
+                    "INSERT INTO config_registry (project_id, key, is_defined, is_used) \
+                     VALUES (?1, ?2, 0, 1) \
+                     ON CONFLICT(project_id, key) DO UPDATE SET is_used = 1",
+                    rusqlite::params![project_id, &var.name],
                 )?;
             }
         }

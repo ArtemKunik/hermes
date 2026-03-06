@@ -6,7 +6,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     create_fts_table(conn)?;
     add_accounting_session_id(conn);
     add_name_lower_index(conn);
-    add_config_registry_table(conn);
+    add_config_registry_table(conn)?;
     Ok(())
 }
 
@@ -14,15 +14,19 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 ///
 /// `is_defined` → var was seen in a definition context (.env, YAML, Markdown table).
 /// `is_used`    → var was accessed in code (Rust/JS/Python/Shell pattern).
-fn add_config_registry_table(conn: &Connection) {
-    let _ = conn.execute_batch(
+/// Scoped by `project_id` so multiple projects can share one DB file.
+fn add_config_registry_table(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS config_registry (
-            key         TEXT PRIMARY KEY,
+            project_id  TEXT NOT NULL,
+            key         TEXT NOT NULL,
             is_defined  INTEGER NOT NULL DEFAULT 0,
             is_used     INTEGER NOT NULL DEFAULT 0,
-            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (project_id, key)
         );",
-    );
+    )?;
+    Ok(())
 }
 
 fn add_name_lower_index(conn: &Connection) {

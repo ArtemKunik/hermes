@@ -83,18 +83,27 @@ impl<'a> IngestionPipeline<'a> {
 
     /// TRACK-040: Scan every crawled file for env var references and populate config_registry.
     fn scan_and_populate_env_vars(&self, files: &[PathBuf]) -> Result<()> {
-        let file_contents: Vec<(String, String)> = files
-            .iter()
-            .filter_map(|p| {
-                std::fs::read_to_string(p)
-                    .ok()
-                    .map(|c| (p.to_string_lossy().to_string(), c))
-            })
-            .collect();
-        let discovered = self.env_scanner.scan_files(&file_contents);
+        // Read and scan files incrementally to avoid holding all file contents in memory at
+        // once, and use a lossy UTF-8 decode path consistent with `ingest_file`.
+        let mut discovered = Vec::new();
+
+        for p in files.iter() {
+            let bytes = match std::fs::read(p) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            let content = String::from_utf8_lossy(&bytes).into_owned();
+            let path_str = p.to_string_lossy().to_string();
+            discovered.extend(self.env_scanner.scan_files(&[(path_str, content)]));
+        }
+
         let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        self.env_scanner.populate_registry(&conn, self.graph.project_id(), &discovered)?;
-        info!(count = discovered.len(), "Populated config_registry with discovered env vars");
+        self.env_scanner
+            .populate_registry(&conn, self.graph.project_id(), &discovered)?;
+        info!(
+            count = discovered.len(),
+            "Populated config_registry with discovered env vars"
+        );
         Ok(())
     }
 
