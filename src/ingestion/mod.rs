@@ -1,5 +1,6 @@
 pub mod chunker;
 pub mod crawler;
+pub mod env_scanner;
 pub mod hash_tracker;
 
 use crate::graph::{EdgeType, KnowledgeGraph, NodeType};
@@ -12,6 +13,7 @@ use tracing::info;
 pub struct IngestionPipeline<'a> {
     graph: &'a KnowledgeGraph,
     hash_tracker: hash_tracker::HashTracker<'a>,
+    env_scanner: env_scanner::EnvScanner,
 }
 
 impl<'a> IngestionPipeline<'a> {
@@ -19,6 +21,8 @@ impl<'a> IngestionPipeline<'a> {
         Self {
             graph,
             hash_tracker: hash_tracker::HashTracker::new(graph.db(), graph.project_id()),
+            env_scanner: env_scanner::EnvScanner::new()
+                .expect("env_scanner regex compilation must not fail"),
         }
     }
 
@@ -29,6 +33,9 @@ impl<'a> IngestionPipeline<'a> {
             .iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
+
+        // TRACK-040: Scan all files for env var usage/definitions → config_registry.
+        self.scan_and_populate_env_vars(&files)?;
 
         let mut report = IngestionReport {
             total_files: files.len(),
@@ -72,6 +79,23 @@ impl<'a> IngestionPipeline<'a> {
         self.cleanup_stale_nodes(&crawled_paths)?;
 
         Ok(report)
+    }
+
+    /// TRACK-040: Scan every crawled file for env var references and populate config_registry.
+    fn scan_and_populate_env_vars(&self, files: &[PathBuf]) -> Result<()> {
+        let file_contents: Vec<(String, String)> = files
+            .iter()
+            .filter_map(|p| {
+                std::fs::read_to_string(p)
+                    .ok()
+                    .map(|c| (p.to_string_lossy().to_string(), c))
+            })
+            .collect();
+        let discovered = self.env_scanner.scan_files(&file_contents);
+        let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.env_scanner.populate_registry(&conn, self.graph.project_id(), &discovered)?;
+        info!(count = discovered.len(), "Populated config_registry with discovered env vars");
+        Ok(())
     }
 
     fn cleanup_stale_nodes(&self, crawled_paths: &HashSet<String>) -> Result<()> {

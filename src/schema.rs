@@ -6,7 +6,23 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     create_fts_table(conn)?;
     add_accounting_session_id(conn);
     add_name_lower_index(conn);
+    add_config_registry_table(conn);
     Ok(())
+}
+
+/// Idempotent: creates the config_registry table for env var tracking.
+///
+/// `is_defined` → var was seen in a definition context (.env, YAML, Markdown table).
+/// `is_used`    → var was accessed in code (Rust/JS/Python/Shell pattern).
+fn add_config_registry_table(conn: &Connection) {
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS config_registry (
+            key         TEXT PRIMARY KEY,
+            is_defined  INTEGER NOT NULL DEFAULT 0,
+            is_used     INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );",
+    );
 }
 
 fn add_name_lower_index(conn: &Connection) {

@@ -2,6 +2,7 @@ pub mod accounting;
 /// Optional Gemini embedding client — not used by the default search pipeline.
 pub mod embedding;
 pub mod mcp_server;
+pub mod mcp_tools_validation;
 pub mod graph;
 pub mod graph_builders;
 pub mod graph_queries;

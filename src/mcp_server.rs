@@ -8,6 +8,7 @@ use crate::{
     accounting::Accountant,
     graph::KnowledgeGraph,
     ingestion::IngestionPipeline,
+    mcp_tools_validation::{tool_check_consistency, tool_validate_env},
     search::{SearchEngine, SearchMode},
     temporal::{FactType, TemporalStore},
     HermesEngine,
@@ -154,6 +155,20 @@ fn handle_tools_list() -> Value {
                     "type": "object",
                     "properties": { "fact_type": { "type": "string", "description": "Optional filter type (omit for all)" } }
                 }
+            },
+            {
+                "name": "hermes_validate_env",
+                "description": "Validate an environment variable name against the config_registry populated during hermes_index. Returns valid:true when the name is known, or valid:false with up to 5 Levenshtein-closest suggestions.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "env_var": { "type": "string", "description": "The environment variable name to validate (e.g. DATABASE_URL)" } },
+                    "required": ["env_var"]
+                }
+            },
+            {
+                "name": "hermes_check_consistency",
+                "description": "Scan config_registry for env vars that are used in code but not defined (unknown) or defined but never referenced (unused). Run after hermes_index.",
+                "inputSchema": { "type": "object", "properties": {} }
             }
         ]
     })
@@ -186,6 +201,12 @@ fn handle_tool_call(engine: &HermesEngine, project_root: &Path, params: &Value) 
             let filter = args["fact_type"].as_str();
             tool_list_facts(engine, filter)?
         }
+        "hermes_validate_env" => {
+            let var = args["env_var"].as_str().unwrap_or("");
+            anyhow::ensure!(!var.is_empty(), "hermes_validate_env requires 'env_var'");
+            tool_validate_env(engine, var)?
+        }
+        "hermes_check_consistency" => tool_check_consistency(engine)?,
         other => anyhow::bail!("unknown tool: {other}"),
     };
 
