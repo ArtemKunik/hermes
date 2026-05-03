@@ -1,0 +1,6 @@
+/target/
+/target-*/
+/.hermes.db
+/.hermes.db-*
+/.hermes.index.lock
+/.hermes.pid

@@ -1,0 +1,277 @@
+// tools/hermes-engine/src/bin/hermes/main.rs
+mod cli;
+mod cli_runtime;
+mod handlers;
+mod handlers_advanced;
+
+use anyhow::{bail, Result};
+use hermes_engine::{mcp_server, mcp_tools_validation, mcp_tools, mcp_quality};
+use std::env;
+
+use crate::cli::{parse_flag, print_usage};
+use crate::cli_runtime::open_engine;
+use crate::handlers::*;
+use crate::handlers_advanced::{cmd_lint_architecture, cmd_heal_violations, cmd_prepare_commit_message};
+
+fn main() -> Result<()> {
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        print_usage();
+        return Ok(());
+    }
+
+    let command = args[1].as_str();
+    if command == "index" && env::var("HERMES_DB_BUSY_TIMEOUT").is_err() {
+        env::set_var("HERMES_DB_BUSY_TIMEOUT", "1");
+    }
+
+    let (engine, project_root) = match open_engine(command) {
+        Ok(v) => v,
+        Err(err)
+            if command == "index"
+                && hermes_engine::retry::is_database_locked_message(&err.to_string()) =>
+        {
+            print_non_blocking_busy_index("database is locked");
+            return Ok(());
+        }
+        Err(err) => return Err(err),
+    };
+
+    // MCP stdio mode: VS Code spawns us directly as an MCP server.
+    if command == "--stdio" {
+        return mcp_server::run(&engine, &project_root);
+    }
+
+    match command {
+        "index" => {
+            // --memory flag indexes memory/ .md files into Qdrant semantic_memory collection.
+            if args.iter().any(|a| a == "--memory") {
+                let memory_root = project_root.join("memory");
+                let rt = tokio::runtime::Runtime::new()?;
+                let indexer = hermes_engine::memory_indexer::MemoryIndexer::new()?;
+                let stats = rt.block_on(indexer.run(&memory_root))?;
+                let output = serde_json::json!({
+                    "total_chunks": stats.total_chunks,
+                    "upserted": stats.upserted,
+                    "skipped": stats.skipped,
+                });
+                println!("{}", serde_json::to_string_pretty(&output)?);
+                return Ok(());
+            }
+            // Optional --enrich flag triggers LLM enrichment via llm-gateway-rust.
+            let enrich = args.iter().any(|a| a == "--enrich");
+            cmd_index(&engine, &project_root, enrich)
+        }
+        "search" => {
+            let query = args.get(2).map(String::as_str).unwrap_or("");
+            if query.is_empty() {
+                bail!("usage: hermes search <query>");
+            }
+            cmd_search(&engine, query)
+        }
+        "fetch" => {
+            let id = args.get(2).map(String::as_str).unwrap_or("");
+            if id.is_empty() {
+                bail!("usage: hermes fetch <node_id>");
+            }
+            cmd_fetch(&engine, id)
+        }
+        "recall" => {
+            let query = args.get(2).map(String::as_str).unwrap_or("");
+            if query.is_empty() {
+                bail!("usage: hermes recall <query>");
+            }
+            cmd_recall(&engine, query)
+        }
+        "fact" => {
+            let fact_type = args.get(2).map(String::as_str).unwrap_or("");
+            let content = args.get(3).map(String::as_str).unwrap_or("");
+            if fact_type.is_empty() || content.is_empty() {
+                bail!("usage: hermes fact <type> <content>");
+            }
+            cmd_add_fact(&engine, fact_type, content)
+        }
+        "facts" => {
+            let filter = args.get(2).map(String::as_str);
+            cmd_list_facts(&engine, filter)
+        }
+        "stats" => {
+            // Task 2.3: support optional --since <duration> flag (24h, 7d, 30d, all)
+            let since_arg = args.get(2).map(String::as_str);
+            cmd_stats(&engine, since_arg)
+        }
+        "backfill-tokens" => {
+            // Retro-fill stored content token counts for existing nodes
+            cmd_backfill(&engine)
+        }
+        "weight-get" => {
+            let node_id = args.get(2).map(String::as_str).unwrap_or("");
+            if node_id.is_empty() {
+                bail!("usage: hermes weight-get <node_id>");
+            }
+            cmd_weight_get(&engine, node_id)
+        }
+        "weight-set" => {
+            let node_id = args.get(2).map(String::as_str).unwrap_or("");
+            let delta_str = args.get(3).map(String::as_str).unwrap_or("");
+            if node_id.is_empty() || delta_str.is_empty() {
+                bail!("usage: hermes weight-set <node_id> <delta>");
+            }
+            let delta: f64 = delta_str
+                .parse()
+                .map_err(|_| anyhow::anyhow!("delta must be a float"))?;
+            cmd_weight_set(&engine, node_id, delta)
+        }
+        "weight-list" => cmd_weight_list(&engine),
+        "nodes-weight-list" => cmd_nodes_weight_list(&engine),
+        "delete-node" => {
+            let node_id = args.get(2).map(String::as_str).unwrap_or("");
+            if node_id.is_empty() {
+                bail!("usage: hermes delete-node <node_id>");
+            }
+            cmd_delete_node(&engine, node_id)
+        }
+        "validate-env" => {
+            let var = args.get(2).map(String::as_str).unwrap_or("");
+            if var.is_empty() {
+                bail!("usage: hermes validate-env <ENV_VAR>");
+            }
+            let out = mcp_tools_validation::tool_validate_env(&engine, var)?;
+            println!("{out}");
+            Ok(())
+        }
+        "validate-symbols" => {
+            let symbols: Vec<&str> = if args.len() <= 2 {
+                Vec::new()
+            } else {
+                args[2..].iter().map(|s| s.as_str()).collect()
+            };
+            if symbols.is_empty() {
+                bail!("usage: hermes validate-symbols <sym1> [sym2 ...]");
+            }
+            let out = mcp_tools_validation::tool_validate_symbols(&engine, &symbols)?;
+            println!("{out}");
+            Ok(())
+        }
+        "list-tracks" => {
+            let status = parse_flag(&args, "--status");
+            cmd_list_tracks(&engine, &project_root, status.as_deref())
+        }
+        "resume-track" => {
+            let auto = args.iter().any(|arg| arg == "--auto");
+            let status = parse_flag(&args, "--status");
+            let track_id = args.get(2).filter(|value| !value.starts_with("--")).map(String::as_str);
+            cmd_resume_track(&engine, &project_root, track_id, auto, status.as_deref())
+        }
+        "scan-duplicates" => {
+            let sig = args.get(2).map(String::as_str).unwrap_or("");
+            if sig.is_empty() {
+                bail!("usage: hermes scan-duplicates <signature>");
+            }
+            let out = mcp_tools::tool_scan_duplicates(&engine, sig)?;
+            println!("{out}");
+            Ok(())
+        }
+        "lint-architecture" => {
+            let scope = parse_flag(&args, "--scope");
+            let severity = parse_flag(&args, "--severity-min");
+            let rules = parse_flag(&args, "--rules");
+            cmd_lint_architecture(&engine, &project_root, scope.as_deref(), severity.as_deref(), rules.as_deref())
+        }
+        "heal-violations" => {
+            cmd_heal_violations(&engine, &project_root, &args)
+        }
+        "prepare-commit-message" => {
+            cmd_prepare_commit_message(&args)
+        }
+        "search-misses" => {
+            // Optional: --since <Nd> (e.g. 7d) and --top <N>
+            let since_days = args
+                .iter()
+                .position(|a| a == "--since")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| {
+                    let s = s.trim_end_matches('d');
+                    s.parse::<u64>().ok()
+                });
+            let top_k = args
+                .iter()
+                .position(|a| a == "--top")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(10);
+            let out = mcp_tools::tool_search_misses(&engine, since_days, top_k)?;
+            println!("{out}");
+            Ok(())
+        }
+        "review" => {
+            let path = args.get(2).map(String::as_str).unwrap_or("ChartApp");
+            let dim = parse_flag(&args, "--dim");
+            let tier = parse_flag(&args, "--tier");
+            let force_accept = args.iter().any(|a| a == "--force-accept");
+            let verbose = args.iter().any(|a| a == "--verbose");
+            let a = serde_json::json!({
+                "path": path,
+                "dim": dim,
+                "tier": tier,
+                "force_accept": force_accept,
+                "verbose": verbose,
+            });
+            let out = mcp_quality::tool_quality_review(&engine, &project_root, &a)?;
+            println!("{out}");
+            Ok(())
+        }
+        "score" => {
+            let module = parse_flag(&args, "--module");
+            let trend = args.iter().any(|a| a == "--trend");
+            let a = serde_json::json!({"module": module, "trend": trend});
+            let out = mcp_quality::tool_quality_score(&engine, &project_root, &a)?;
+            println!("{out}");
+            Ok(())
+        }
+        "next-review" => {
+            let module = parse_flag(&args, "--module");
+            let a = serde_json::json!({"module": module});
+            let out = mcp_quality::tool_quality_next(&engine, &project_root, &a)?;
+            println!("{out}");
+            Ok(())
+        }
+        "resolve-review" => {
+            let id = parse_flag(&args, "--id").unwrap_or_default();
+            if id.is_empty() { bail!("usage: hermes resolve-review --id <id>"); }
+            let a = serde_json::json!({"id": id});
+            let out = mcp_quality::tool_quality_resolve(&engine, &project_root, &a)?;
+            println!("{out}");
+            Ok(())
+        }
+        "wontfix-review" => {
+            let id = parse_flag(&args, "--id").unwrap_or_default();
+            let reason = parse_flag(&args, "--reason").unwrap_or_default();
+            if id.is_empty() || reason.is_empty() {
+                bail!("usage: hermes wontfix-review --id <id> --reason \"<text>\"");
+            }
+            let a = serde_json::json!({"id": id, "reason": reason});
+            let out = mcp_quality::tool_quality_wontfix(&engine, &project_root, &a)?;
+            println!("{out}");
+            Ok(())
+        }
+        "quality-baseline" => {
+            let out = hermes_engine::mcp_quality_drift::tool_quality_baseline(
+                &engine, &project_root, &serde_json::json!({}),
+            )?;
+            println!("{out}");
+            Ok(())
+        }
+        "quality-drift" => {
+            let out = hermes_engine::mcp_quality_drift::tool_quality_drift(
+                &engine, &project_root, &serde_json::json!({}),
+            )?;
+            println!("{out}");
+            Ok(())
+        }
+        unknown => {
+            print_usage();
+            bail!("unknown command: {unknown}");
+        }
+    }
+}
