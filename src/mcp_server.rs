@@ -1,8 +1,9 @@
-
 use anyhow::Result;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::{
     accounting::Accountant,
@@ -14,6 +15,54 @@ use crate::{
     HermesEngine,
 };
 
+// Caches engines keyed by canonicalized project root so a single MCP process
+// can serve multiple repositories transparently.
+struct EngineCache {
+    default_engine: HermesEngine,
+    default_root: PathBuf,
+    extra: Mutex<HashMap<PathBuf, HermesEngine>>,
+}
+
+impl EngineCache {
+    fn new(engine: HermesEngine, root: PathBuf) -> Self {
+        Self {
+            default_engine: engine,
+            default_root: root,
+            extra: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn resolve(&self, project_root_arg: Option<&str>) -> Result<(HermesEngine, PathBuf)> {
+        let Some(root_str) = project_root_arg.filter(|s| !s.is_empty()) else {
+            return Ok((self.default_engine.clone(), self.default_root.clone()));
+        };
+
+        let root = PathBuf::from(root_str);
+        let root = root.canonicalize().unwrap_or_else(|_| root.clone());
+        let default_canonical = self
+            .default_root
+            .canonicalize()
+            .unwrap_or_else(|_| self.default_root.clone());
+
+        if root == default_canonical {
+            return Ok((self.default_engine.clone(), self.default_root.clone()));
+        }
+
+        let mut cache = self.extra.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        if let Some(engine) = cache.get(&root) {
+            return Ok((engine.clone(), root.clone()));
+        }
+
+        let project_id = root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let engine = HermesEngine::new(&root.join(".hermes.db"), &project_id)?;
+        cache.insert(root.clone(), engine.clone());
+        Ok((engine, root))
+    }
+}
 
 fn spawn_auto_reindex(engine: HermesEngine, project_root: PathBuf) {
     let interval_secs = std::env::var("HERMES_AUTO_INDEX_INTERVAL_SECS")
@@ -27,7 +76,10 @@ fn spawn_auto_reindex(engine: HermesEngine, project_root: PathBuf) {
     }
 
     std::thread::spawn(move || {
-        eprintln!("[hermes] auto-reindex thread started (interval={}s)", interval_secs);
+        eprintln!(
+            "[hermes] auto-reindex thread started (interval={}s)",
+            interval_secs
+        );
         loop {
             std::thread::sleep(std::time::Duration::from_secs(interval_secs));
             let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
@@ -45,6 +97,7 @@ fn spawn_auto_reindex(engine: HermesEngine, project_root: PathBuf) {
 
 pub fn run(engine: &HermesEngine, project_root: &Path) -> Result<()> {
     spawn_auto_reindex(engine.clone(), project_root.to_path_buf());
+    let cache = EngineCache::new(engine.clone(), project_root.to_path_buf());
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -72,7 +125,7 @@ pub fn run(engine: &HermesEngine, project_root: &Path) -> Result<()> {
             continue;
         }
 
-        let result = dispatch(engine, project_root, method, &params);
+        let result = dispatch(&cache, method, &params);
         match result {
             Ok(payload) => write_ok(&mut out, &id, payload)?,
             Err(e) => write_error(&mut out, &id, -32603, &e.to_string())?,
@@ -81,27 +134,27 @@ pub fn run(engine: &HermesEngine, project_root: &Path) -> Result<()> {
     Ok(())
 }
 
-
-fn dispatch(
-    engine: &HermesEngine,
-    project_root: &Path,
-    method: &str,
-    params: &Value,
-) -> Result<Value> {
+fn dispatch(cache: &EngineCache, method: &str, params: &Value) -> Result<Value> {
     match method {
         "initialize" => Ok(handle_initialize()),
         "tools/list" => Ok(handle_tools_list()),
-        "tools/call" => handle_tool_call(engine, project_root, params),
+        "tools/call" => handle_tool_call(cache, params),
         other => anyhow::bail!("unknown method: {other}"),
     }
 }
-
 
 fn handle_initialize() -> Value {
     json!({
         "protocolVersion": "2024-11-05",
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": { "name": "Hermes", "version": env!("CARGO_PKG_VERSION") }
+    })
+}
+
+fn project_root_schema() -> Value {
+    json!({
+        "type": "string",
+        "description": "Absolute path to the project root. Defaults to the server's startup directory when omitted."
     })
 }
 
@@ -113,8 +166,11 @@ fn handle_tools_list() -> Value {
                 "description": "Search the codebase knowledge graph. Returns pointers (not full content). Records token savings in accounting.",
                 "inputSchema": {
                     "type": "object",
-                    "properties": { "query": { "type": "string", "description": "Natural-language or keyword search query" } },
-                    "required": ["query"]
+                    "properties": {
+                        "query": { "type": "string", "description": "Natural-language or keyword search query" },
+                        "project_root": project_root_schema()
+                    },
+                    "required": ["query", "project_root"]
                 }
             },
             {
@@ -122,19 +178,30 @@ fn handle_tools_list() -> Value {
                 "description": "Fetch full content for a specific knowledge-graph node by ID returned by hermes_search.",
                 "inputSchema": {
                     "type": "object",
-                    "properties": { "node_id": { "type": "string", "description": "Node ID from a previous search result" } },
-                    "required": ["node_id"]
+                    "properties": {
+                        "node_id": { "type": "string", "description": "Node ID from a previous search result" },
+                        "project_root": project_root_schema()
+                    },
+                    "required": ["node_id", "project_root"]
                 }
             },
             {
                 "name": "hermes_index",
                 "description": "Re-index the project files into the knowledge graph. Run after adding or changing files.",
-                "inputSchema": { "type": "object", "properties": {} }
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "project_root": project_root_schema() },
+                    "required": ["project_root"]
+                }
             },
             {
                 "name": "hermes_stats",
                 "description": "Return cumulative token savings statistics across all Hermes sessions.",
-                "inputSchema": { "type": "object", "properties": {} }
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "project_root": project_root_schema() },
+                    "required": ["project_root"]
+                }
             },
             {
                 "name": "hermes_fact",
@@ -143,9 +210,10 @@ fn handle_tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "fact_type": { "type": "string", "description": "One of: architecture, decision, learning, constraint, error_pattern, api_contract" },
-                        "content":   { "type": "string", "description": "The fact to record" }
+                        "content":   { "type": "string", "description": "The fact to record" },
+                        "project_root": project_root_schema()
                     },
-                    "required": ["fact_type", "content"]
+                    "required": ["fact_type", "content", "project_root"]
                 }
             },
             {
@@ -153,7 +221,11 @@ fn handle_tools_list() -> Value {
                 "description": "List active facts from the temporal store, optionally filtered by type.",
                 "inputSchema": {
                     "type": "object",
-                    "properties": { "fact_type": { "type": "string", "description": "Optional filter type (omit for all)" } }
+                    "properties": {
+                        "fact_type": { "type": "string", "description": "Optional filter type (omit for all)" },
+                        "project_root": project_root_schema()
+                    },
+                    "required": ["project_root"]
                 }
             },
             {
@@ -161,85 +233,116 @@ fn handle_tools_list() -> Value {
                 "description": "Validate an environment variable name against the config_registry populated during hermes_index. Returns valid:true when the name is known, or valid:false with up to 5 Levenshtein-closest suggestions.",
                 "inputSchema": {
                     "type": "object",
-                    "properties": { "env_var": { "type": "string", "description": "The environment variable name to validate (e.g. DATABASE_URL)" } },
-                    "required": ["env_var"]
+                    "properties": {
+                        "env_var": { "type": "string", "description": "The environment variable name to validate (e.g. DATABASE_URL)" },
+                        "project_root": project_root_schema()
+                    },
+                    "required": ["env_var", "project_root"]
                 }
             },
             {
                 "name": "hermes_check_consistency",
                 "description": "Scan config_registry for env vars that are used in code but not defined (unknown) or defined but never referenced (unused). Run after hermes_index.",
-                "inputSchema": { "type": "object", "properties": {} }
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "project_root": project_root_schema() },
+                    "required": ["project_root"]
+                }
             }
         ]
     })
 }
 
-fn handle_tool_call(engine: &HermesEngine, project_root: &Path, params: &Value) -> Result<Value> {
+fn handle_tool_call(cache: &EngineCache, params: &Value) -> Result<Value> {
     let name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
+
+    let project_root_arg = args["project_root"].as_str().unwrap_or("");
+    anyhow::ensure!(
+        !project_root_arg.is_empty(),
+        "project_root is required — pass the absolute path to the repository root"
+    );
+    let (engine, project_root) = cache.resolve(Some(project_root_arg))?;
 
     let text = match name {
         "hermes_search" => {
             let query = args["query"].as_str().unwrap_or("");
             anyhow::ensure!(!query.is_empty(), "hermes_search requires 'query'");
-            tool_search(engine, query)?
+            tool_search(&engine, query)?
         }
         "hermes_fetch" => {
             let node_id = args["node_id"].as_str().unwrap_or("");
             anyhow::ensure!(!node_id.is_empty(), "hermes_fetch requires 'node_id'");
-            tool_fetch(engine, node_id)?
+            tool_fetch(&engine, node_id)?
         }
-        "hermes_index"  => tool_index(engine, project_root)?,
-        "hermes_stats"  => tool_stats(engine)?,
-        "hermes_fact"   => {
+        "hermes_index" => tool_index(&engine, &project_root)?,
+        "hermes_stats" => tool_stats(&engine)?,
+        "hermes_fact" => {
             let ft = args["fact_type"].as_str().unwrap_or("");
-            let c  = args["content"].as_str().unwrap_or("");
-            anyhow::ensure!(!ft.is_empty() && !c.is_empty(), "hermes_fact requires 'fact_type' and 'content'");
-            tool_add_fact(engine, ft, c)?
+            let c = args["content"].as_str().unwrap_or("");
+            anyhow::ensure!(
+                !ft.is_empty() && !c.is_empty(),
+                "hermes_fact requires 'fact_type' and 'content'"
+            );
+            tool_add_fact(&engine, ft, c)?
         }
         "hermes_facts" => {
             let filter = args["fact_type"].as_str();
-            tool_list_facts(engine, filter)?
+            tool_list_facts(&engine, filter)?
         }
         "hermes_validate_env" => {
             let var = args["env_var"].as_str().unwrap_or("");
             anyhow::ensure!(!var.is_empty(), "hermes_validate_env requires 'env_var'");
-            tool_validate_env(engine, var)?
+            tool_validate_env(&engine, var)?
         }
-        "hermes_check_consistency" => tool_check_consistency(engine)?,
+        "hermes_check_consistency" => tool_check_consistency(&engine)?,
         other => anyhow::bail!("unknown tool: {other}"),
     };
 
     Ok(json!({ "content": [{ "type": "text", "text": text }] }))
 }
 
-
 fn tool_search(engine: &HermesEngine, query: &str) -> Result<String> {
-    let graph  = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+    let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let search = SearchEngine::new(&graph, engine.search_cache());
-    let resp   = search.search(query, 10, &SearchMode::Smart)?;
-    let acct   = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
-    acct.record_query(query, resp.accounting.pointer_tokens, 0, resp.accounting.traditional_rag_estimate)?;
+    let resp = search.search(query, 10, &SearchMode::Smart)?;
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
+    acct.record_query(
+        query,
+        resp.accounting.pointer_tokens,
+        0,
+        resp.accounting.traditional_rag_estimate,
+    )?;
     Ok(serde_json::to_string_pretty(&resp)?)
 }
 
 fn tool_fetch(engine: &HermesEngine, node_id: &str) -> Result<String> {
-    let graph  = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+    let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let search = SearchEngine::new(&graph, engine.search_cache());
     let Some(resp) = search.fetch(node_id)? else {
         anyhow::bail!("node not found: {node_id}");
     };
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
     acct.record_query(node_id, 0, resp.token_count, resp.token_count * 15)?;
     Ok(serde_json::to_string_pretty(&resp)?)
 }
 
 fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> {
-    let graph    = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+    let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let pipeline = IngestionPipeline::new(&graph);
-    let report   = pipeline.ingest_directory(project_root)?;
+    let report = pipeline.ingest_directory(project_root)?;
     engine.invalidate_search_cache();
     Ok(serde_json::to_string_pretty(&json!({
+        "project_id": engine.project_id(),
+        "project_root": project_root.display().to_string(),
         "total_files": report.total_files, "indexed": report.indexed,
         "skipped": report.skipped, "errors": report.errors,
         "nodes_created": report.nodes_created,
@@ -247,8 +350,12 @@ fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> {
 }
 
 fn tool_stats(engine: &HermesEngine) -> Result<String> {
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
-    let today      = acct.get_today_stats()?;
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
+    let today = acct.get_today_stats()?;
     let cumulative = acct.get_cumulative_stats()?;
     Ok(serde_json::to_string_pretty(&json!({
         "today": {
@@ -273,7 +380,9 @@ fn tool_stats(engine: &HermesEngine) -> Result<String> {
 fn tool_add_fact(engine: &HermesEngine, fact_type_str: &str, content: &str) -> Result<String> {
     let store = TemporalStore::new(engine.db().clone(), engine.project_id());
     let id = store.add_fact(None, FactType::parse_str(fact_type_str), content, None)?;
-    Ok(serde_json::to_string_pretty(&json!({ "id": id, "status": "recorded" }))?)
+    Ok(serde_json::to_string_pretty(
+        &json!({ "id": id, "status": "recorded" }),
+    )?)
 }
 
 fn tool_list_facts(engine: &HermesEngine, filter: Option<&str>) -> Result<String> {
@@ -281,7 +390,6 @@ fn tool_list_facts(engine: &HermesEngine, filter: Option<&str>) -> Result<String
     let facts = store.get_active_facts(filter.map(FactType::parse_str).as_ref())?;
     Ok(serde_json::to_string_pretty(&facts)?)
 }
-
 
 fn write_ok(out: &mut impl Write, id: &Value, result: Value) -> Result<()> {
     let envelope = json!({ "jsonrpc": "2.0", "id": id, "result": result });
