@@ -31,6 +31,10 @@ pub enum NodeType {
     Enum,
     Concept,
     Document,
+    // hermes-mind personal knowledge types
+    Message,
+    Email,
+    Contact,
 }
 
 impl NodeType {
@@ -45,6 +49,9 @@ impl NodeType {
             Self::Enum => "enum",
             Self::Concept => "concept",
             Self::Document => "document",
+            Self::Message => "message",
+            Self::Email => "email",
+            Self::Contact => "contact",
         }
     }
 
@@ -59,6 +66,9 @@ impl NodeType {
             "enum" => Self::Enum,
             "concept" => Self::Concept,
             "document" => Self::Document,
+            "message" => Self::Message,
+            "email" => Self::Email,
+            "contact" => Self::Contact,
             _ => Self::Concept,
         }
     }
