@@ -1,21 +1,21 @@
 pub mod accounting;
-pub mod vector_ops;
 /// Optional Gemini embedding client — not used by the default search pipeline.
 pub mod embedding;
-pub mod mcp_server;
-pub mod mcp_tools_validation;
 pub mod graph;
 pub mod graph_builders;
 pub mod graph_queries;
 pub mod ingestion;
+pub mod mcp_server;
+pub mod mcp_tools_validation;
 pub mod pointer;
 pub mod schema;
 pub mod search;
 pub mod temporal;
+pub mod vector_ops;
 
+use crate::pointer::PointerResponse;
 use anyhow::Result;
 use chrono::Local;
-use crate::pointer::PointerResponse;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::Path;

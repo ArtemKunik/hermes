@@ -5,13 +5,46 @@ use std::collections::HashSet;
 
 impl KnowledgeGraph {
     pub fn literal_search_by_name(&self, query: &str) -> Result<Vec<Node>> {
+        let query_lower = query.to_lowercase();
+        if query_lower.is_ascii() {
+            let prefix_results = self.literal_search_ascii(&query_lower, true)?;
+            if !prefix_results.is_empty() {
+                return Ok(prefix_results);
+            }
+
+            let contains_results = self.literal_search_ascii(&query_lower, false)?;
+            if !contains_results.is_empty() {
+                return Ok(contains_results);
+            }
+        }
+
+        self.literal_search_unicode_fallback(&query_lower)
+    }
+
+    fn literal_search_ascii(&self, query_lower: &str, prefix_only: bool) -> Result<Vec<Node>> {
+        let conn = self.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let pattern = if prefix_only {
+            format!("{query_lower}%")
+        } else {
+            format!("%{query_lower}%")
+        };
+        let mut stmt = conn.prepare(
+            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash
+             FROM nodes
+             WHERE project_id = ?1 AND LOWER(name) LIKE ?2
+             ORDER BY LENGTH(name), name
+             LIMIT 100",
+        )?;
+        let rows = stmt
+            .query_map(params![self.project_id(), pattern], node_from_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    fn literal_search_unicode_fallback(&self, query_lower: &str) -> Result<Vec<Node>> {
         let conn = self.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         // Use Rust's Unicode-aware to_lowercase() rather than SQLite's LOWER()
         // which only folds ASCII letters (é, ü, Cyrillic, etc. are left as-is).
-        // We fetch all nodes for the project and filter in Rust so that
-        // non-ASCII case folding works correctly for every script.
-        let query_lower = query.to_lowercase();
-
         let mut stmt = conn.prepare(
             "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash
              FROM nodes WHERE project_id = ?1",
@@ -20,20 +53,18 @@ impl KnowledgeGraph {
             .query_map(params![self.project_id()], node_from_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        // Prefer prefix matches; fall back to contains matches.
         let prefix_results: Vec<Node> = all_nodes
             .iter()
-            .filter(|n| n.name.to_lowercase().starts_with(&query_lower))
+            .filter(|n| n.name.to_lowercase().starts_with(query_lower))
             .cloned()
             .collect();
-
         if !prefix_results.is_empty() {
             return Ok(prefix_results);
         }
 
         let results: Vec<Node> = all_nodes
             .into_iter()
-            .filter(|n| n.name.to_lowercase().contains(&query_lower))
+            .filter(|n| n.name.to_lowercase().contains(query_lower))
             .collect();
         Ok(results)
     }
@@ -166,6 +197,17 @@ mod tests {
     }
 
     #[test]
+    fn literal_search_preserves_unicode_fallback() {
+        let engine = HermesEngine::in_memory("gq-unicode").unwrap();
+        let graph = make_graph(&engine);
+        insert_node(&graph, "n1", "RésuméHandler", "src/server.rs");
+
+        let results = graph.literal_search_by_name("résumé").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "RésuméHandler");
+    }
+
+    #[test]
     fn literal_search_returns_empty_for_no_match() {
         let engine = HermesEngine::in_memory("gq-nomatch").unwrap();
         let graph = make_graph(&engine);
@@ -285,7 +327,9 @@ mod tests {
         let engine = HermesEngine::in_memory("gq-fts-empty").unwrap();
         let graph = make_graph(&engine);
         let node = insert_node(&graph, "n1", "handler", "src/api.rs");
-        graph.index_fts(&node, "something completely different").unwrap();
+        graph
+            .index_fts(&node, "something completely different")
+            .unwrap();
 
         let results = graph.fts_search("\"xyznonexistent\"", 10).unwrap();
         assert!(results.is_empty());

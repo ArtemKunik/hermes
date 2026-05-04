@@ -7,7 +7,7 @@ use crate::pointer::{FetchResponse, Pointer, PointerResponse};
 use crate::SearchCacheMap;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -97,7 +97,12 @@ impl<'a> SearchEngine<'a> {
         let l1_results = fts::fts_search(self.graph, query)?;
         all_results.extend(l1_results);
 
-        let l2_results = vector::vector_search(self.graph, query)?;
+        let vector_candidates = Self::collect_candidate_ids(&all_results);
+        let l2_results = vector::vector_search(
+            self.graph,
+            query,
+            (!vector_candidates.is_empty()).then_some(&vector_candidates),
+        )?;
         all_results.extend(l2_results);
 
         let merged = Self::deduplicate_and_rank(all_results, top_k);
@@ -126,7 +131,6 @@ impl<'a> SearchEngine<'a> {
             token_count,
         }))
     }
-
 
     fn get_from_cache(&self, key: &str) -> Option<PointerResponse> {
         let ttl = Duration::from_secs(CACHE_TTL_SECS);
@@ -160,7 +164,6 @@ impl<'a> SearchEngine<'a> {
         cache.insert(key, (response, Instant::now()));
     }
 
-
     fn read_node_content_cached(&self, node: &Node) -> Result<String> {
         let file_path = node.file_path.clone().unwrap_or_default();
         let start = node.start_line.unwrap_or(0);
@@ -190,7 +193,6 @@ impl<'a> SearchEngine<'a> {
 
         Ok(content)
     }
-
 
     fn deduplicate_and_rank(results: Vec<SearchResult>, top_k: usize) -> Vec<SearchResult> {
         let mut best: HashMap<String, SearchResult> = HashMap::new();
@@ -229,6 +231,13 @@ impl<'a> SearchEngine<'a> {
         });
         ranked.truncate(top_k);
         ranked
+    }
+
+    fn collect_candidate_ids(results: &[SearchResult]) -> HashSet<String> {
+        results
+            .iter()
+            .map(|result| result.node.id.clone())
+            .collect()
     }
 
     fn results_to_pointers(results: &[SearchResult], _mode: &SearchMode) -> Vec<Pointer> {
@@ -349,4 +358,3 @@ mod tests {
         assert_eq!(estimate_tokens(""), 0);
     }
 }
-

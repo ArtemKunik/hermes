@@ -330,7 +330,10 @@ mod tests {
 
     #[test]
     fn extract_impl_name_simple() {
-        assert_eq!(extract_impl_name("impl MyStruct {"), Some("MyStruct".to_string()));
+        assert_eq!(
+            extract_impl_name("impl MyStruct {"),
+            Some("MyStruct".to_string())
+        );
     }
 
     #[test]
@@ -398,8 +401,15 @@ mod tests {
     #[test]
     fn build_summary_long_line() {
         let long_line = "pub fn a_very_long_function_name_that_exceeds_eighty_characters_limit_for_sure(x: u32) {";
-        let summary = build_summary("a_very_long_function_name_that_exceeds_eighty_characters_limit_for_sure", &NodeType::Function, long_line);
-        assert_eq!(summary, "function: a_very_long_function_name_that_exceeds_eighty_characters_limit_for_sure");
+        let summary = build_summary(
+            "a_very_long_function_name_that_exceeds_eighty_characters_limit_for_sure",
+            &NodeType::Function,
+            long_line,
+        );
+        assert_eq!(
+            summary,
+            "function: a_very_long_function_name_that_exceeds_eighty_characters_limit_for_sure"
+        );
     }
 
     #[test]

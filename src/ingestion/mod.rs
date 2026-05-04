@@ -6,7 +6,7 @@ pub mod hash_tracker;
 use crate::graph::{ChunkWriteRecord, EdgeType, KnowledgeGraph, NodeType};
 use anyhow::Result;
 use rayon::prelude::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tracing::info;
 
@@ -14,6 +14,13 @@ pub struct IngestionPipeline<'a> {
     graph: &'a KnowledgeGraph,
     hash_tracker: hash_tracker::HashTracker<'a>,
     env_scanner: env_scanner::EnvScanner,
+}
+
+struct LoadedFile {
+    path: PathBuf,
+    path_str: String,
+    content: String,
+    file_hash: String,
 }
 
 impl<'a> IngestionPipeline<'a> {
@@ -28,36 +35,36 @@ impl<'a> IngestionPipeline<'a> {
 
     pub fn ingest_directory(&self, dir_path: &Path) -> Result<IngestionReport> {
         let files = crawler::crawl_directory(dir_path)?;
+        let loaded_files = Self::load_files(&files)?;
+        let stored_hashes = self.hash_tracker.load_all_hashes()?;
 
-        let crawled_paths: HashSet<String> = files
+        let crawled_paths: HashSet<String> = loaded_files
             .iter()
-            .map(|p| p.to_string_lossy().to_string())
+            .map(|file| file.path_str.clone())
             .collect();
 
         // TRACK-040: Scan all files for env var usage/definitions → config_registry.
-        self.scan_and_populate_env_vars(&files)?;
+        self.scan_and_populate_env_vars(&loaded_files)?;
 
         let mut report = IngestionReport {
-            total_files: files.len(),
+            total_files: loaded_files.len(),
             ..Default::default()
         };
 
-        let mut to_ingest: Vec<&PathBuf> = Vec::new();
-        for file_path in &files {
-            let path_str = file_path.to_string_lossy().to_string();
-            if self.hash_tracker.is_unchanged(&path_str)? {
+        let mut to_ingest: Vec<&LoadedFile> = Vec::new();
+        for file in &loaded_files {
+            if stored_hashes.get(&file.path_str) == Some(&file.file_hash) {
                 report.skipped += 1;
             } else {
-                to_ingest.push(file_path);
+                to_ingest.push(file);
             }
         }
 
         let ingest_results: Vec<(String, Result<usize>)> = to_ingest
             .par_iter()
-            .map(|file_path| {
-                let path_str = file_path.to_string_lossy().to_string();
-                let result = self.ingest_file(file_path);
-                (path_str, result)
+            .map(|file| {
+                let result = self.ingest_loaded_file(file, &stored_hashes);
+                (file.path_str.clone(), result)
             })
             .collect();
 
@@ -66,8 +73,6 @@ impl<'a> IngestionPipeline<'a> {
                 Ok(count) => {
                     report.indexed += 1;
                     report.nodes_created += count;
-                    let p = PathBuf::from(&path_str);
-                    self.hash_tracker.update_hash(&path_str, &p)?;
                 }
                 Err(e) => {
                     info!(path = %path_str, error = %e, "Failed to ingest file");
@@ -82,17 +87,10 @@ impl<'a> IngestionPipeline<'a> {
     }
 
     /// TRACK-040: Scan every crawled file for env var references and populate config_registry.
-    fn scan_and_populate_env_vars(&self, files: &[PathBuf]) -> Result<()> {
+    fn scan_and_populate_env_vars(&self, files: &[LoadedFile]) -> Result<()> {
         let discovered: Vec<env_scanner::DiscoveredEnvVar> = files
             .par_iter()
-            .flat_map(|p| {
-                let bytes = match std::fs::read(p) {
-                    Ok(b) => b,
-                    Err(_) => return Vec::new(),
-                };
-                let content = String::from_utf8_lossy(&bytes).into_owned();
-                self.env_scanner.scan_file(p, &content)
-            })
+            .flat_map(|file| self.env_scanner.scan_file(&file.path, &file.content))
             .collect();
 
         let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -115,31 +113,34 @@ impl<'a> IngestionPipeline<'a> {
     }
 
     pub fn ingest_file(&self, file_path: &Path) -> Result<usize> {
-        // Read as raw bytes and convert to UTF-8 lossily so that files encoded
-        // in Latin-1, Windows-1252, GBK, etc. are still indexed rather than
-        // rejected with an "invalid UTF-8" error.
-        let bytes = std::fs::read(file_path)?;
-        let content = String::from_utf8_lossy(&bytes).into_owned();
-        let path_str = file_path.to_string_lossy().to_string();
-        let chunks = chunker::chunk_file(file_path, &content);
+        let loaded_file = Self::load_file(file_path.to_path_buf())?;
+        let stored_hashes = self.hash_tracker.load_all_hashes()?;
+        self.ingest_loaded_file(&loaded_file, &stored_hashes)
+    }
 
-        let file_hash = hash_tracker::compute_hash(&content);
+    fn ingest_loaded_file(
+        &self,
+        file: &LoadedFile,
+        stored_hashes: &HashMap<String, String>,
+    ) -> Result<usize> {
+        let chunks = chunker::chunk_file(&file.path, &file.content);
         let file_node = self
             .graph
             .create_node_builder()
-            .name(&path_str)
+            .name(&file.path_str)
             .node_type(NodeType::File)
-            .file_path(&path_str)
-            .lines(1, content.lines().count() as i64)
-            .content_hash(&file_hash)
+            .file_path(&file.path_str)
+            .lines(1, file.content.lines().count() as i64)
+            .content_hash(&file.file_hash)
             .build();
 
-        // Phase 1: determine which chunks changed (fast read-only DB access).
+        // Phase 1: determine which chunks changed using the hash snapshot loaded
+        // once at the start of the indexing pass.
         let mut chunk_records: Vec<ChunkWriteRecord> = Vec::new();
         for chunk in &chunks {
-            let chunk_key = format!("{}::{}", path_str, chunk.name);
+            let chunk_key = format!("{}::{}", file.path_str, chunk.name);
             let chunk_hash = hash_tracker::compute_hash(&chunk.content);
-            if self.hash_tracker.is_chunk_unchanged(&chunk_key, &chunk_hash)? {
+            if stored_hashes.get(&chunk_key) == Some(&chunk_hash) {
                 continue;
             }
             let chunk_node = self
@@ -147,7 +148,7 @@ impl<'a> IngestionPipeline<'a> {
                 .create_node_builder()
                 .name(&chunk.name)
                 .node_type(chunk.node_type.clone())
-                .file_path(&path_str)
+                .file_path(&file.path_str)
                 .lines(chunk.start_line as i64, chunk.end_line as i64)
                 .summary(&chunk.summary)
                 .build();
@@ -171,9 +172,34 @@ impl<'a> IngestionPipeline<'a> {
 
         // Phase 2: write the file node, all chunk nodes/edges, and chunk hashes
         // in a single transaction — one lock acquisition and one BEGIN/COMMIT.
-        self.graph.ingest_file_batch(&file_node, &content, &chunk_records)?;
+        self.graph
+            .ingest_file_batch(&file_node, &file.content, &chunk_records)?;
 
         Ok(created)
+    }
+
+    fn load_files(paths: &[PathBuf]) -> Result<Vec<LoadedFile>> {
+        let results: Vec<Result<LoadedFile>> = paths
+            .par_iter()
+            .map(|path| Self::load_file(path.clone()))
+            .collect();
+        results.into_iter().collect()
+    }
+
+    fn load_file(path: PathBuf) -> Result<LoadedFile> {
+        // Read as raw bytes and convert to UTF-8 lossily so that files encoded
+        // in Latin-1, Windows-1252, GBK, etc. are still indexed rather than
+        // rejected with an "invalid UTF-8" error.
+        let bytes = std::fs::read(&path)?;
+        let content = String::from_utf8_lossy(&bytes).into_owned();
+        let path_str = path.to_string_lossy().to_string();
+        let file_hash = hash_tracker::compute_hash(&content);
+        Ok(LoadedFile {
+            path,
+            path_str,
+            content,
+            file_hash,
+        })
     }
 }
 
@@ -199,8 +225,8 @@ impl std::fmt::Display for IngestionReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::HermesEngine;
     use crate::graph::KnowledgeGraph;
+    use crate::HermesEngine;
     use tempfile::TempDir;
 
     fn make_graph_for(engine: &HermesEngine) -> KnowledgeGraph {
@@ -257,4 +283,3 @@ mod tests {
         assert!(paths_after_second.is_empty());
     }
 }
-
