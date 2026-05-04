@@ -70,9 +70,17 @@ impl EngineCache {
             .to_string();
         let engine = HermesEngine::new(&root.join(".hermes.db"), &project_id)?;
         eprintln!(
-            "[hermes] resolve: project_root={:?} -> opened new project_id={}",
+            "[hermes] resolve: project_root={:?} -> opened new project_id={}, auto-indexing...",
             root_str, project_id
         );
+        let graph = KnowledgeGraph::new(engine.db().clone(), &project_id);
+        match IngestionPipeline::new(&graph).ingest_directory(&root) {
+            Ok(r) => eprintln!(
+                "[hermes] auto-index {}: {} indexed, {} skipped, {} errors",
+                project_id, r.indexed, r.skipped, r.errors
+            ),
+            Err(e) => eprintln!("[hermes] auto-index {} failed: {e}", project_id),
+        }
         cache.insert(root.clone(), engine.clone());
         Ok((engine, root))
     }
