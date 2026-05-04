@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::connectors::Connector;
+use crate::sync_state::SyncState;
 
 struct EngineCache {
     default_engine: HermesEngine,
@@ -264,6 +265,7 @@ fn tool_sync(
     }
 
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+    let sync_state = SyncState::new(engine.db().clone(), engine.project_id());
     let mut results = Vec::new();
 
     for connector in connectors {
@@ -272,7 +274,7 @@ fn tool_sync(
                 continue;
             }
         }
-        let outcome = match connector.sync(&graph) {
+        let outcome = match connector.sync(&graph, &sync_state) {
             Ok(r) => json!({
                 "connector": connector.name(),
                 "ingested": r.ingested,

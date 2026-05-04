@@ -3,15 +3,14 @@
 // Required env vars:
 //   HERMES_MIND_TELEGRAM_BOT_TOKEN  — from @BotFather
 //
-// The bot must be added to the chats/groups you want indexed.
-// Polls getUpdates in a tight loop; each message becomes a Message node.
+// Incremental: persists the getUpdates offset in connector_state so restarts
+// don't replay already-processed updates.
 
 use super::{Connector, SyncReport};
+use crate::sync_state::SyncState;
 use anyhow::Result;
 use hermes_engine::graph::{KnowledgeGraph, Node, NodeType};
 use serde::Deserialize;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::Arc;
 
 const API_BASE: &str = "https://api.telegram.org";
 
@@ -50,19 +49,16 @@ struct From {
 
 pub struct TelegramConnector {
     token: String,
-    offset: Arc<AtomicI64>,
 }
 
 impl TelegramConnector {
     pub fn new(token: impl Into<String>) -> Self {
         Self {
             token: token.into(),
-            offset: Arc::new(AtomicI64::new(0)),
         }
     }
 
-    fn get_updates(&self) -> Result<Vec<Update>> {
-        let offset = self.offset.load(Ordering::Relaxed);
+    fn get_updates(&self, offset: i64) -> Result<Vec<Update>> {
         let url = format!("{API_BASE}/bot{}/getUpdates", self.token);
         let resp: UpdateList = ureq::get(&url)
             .query("timeout", "10")
@@ -78,21 +74,27 @@ impl Connector for TelegramConnector {
         "telegram"
     }
 
-    fn sync(&self, graph: &KnowledgeGraph) -> Result<SyncReport> {
+    fn sync(&self, graph: &KnowledgeGraph, state: &SyncState) -> Result<SyncReport> {
         let mut report = SyncReport::default();
-        let updates = self.get_updates()?;
+
+        let mut offset = state
+            .get("telegram", "offset")?
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(0);
+
+        let updates = self.get_updates(offset)?;
 
         for update in updates {
+            let next = update.update_id + 1;
+
             let Some(msg) = update.message else {
-                self.offset
-                    .fetch_max(update.update_id + 1, Ordering::Relaxed);
+                offset = offset.max(next);
                 continue;
             };
 
             let Some(text) = msg.text else {
                 report.skipped += 1;
-                self.offset
-                    .fetch_max(update.update_id + 1, Ordering::Relaxed);
+                offset = offset.max(next);
                 continue;
             };
 
@@ -120,11 +122,11 @@ impl Connector for TelegramConnector {
             };
             graph.add_node(&node)?;
             graph.index_fts(&node, &text)?;
-            self.offset
-                .fetch_max(update.update_id + 1, Ordering::Relaxed);
+            offset = offset.max(next);
             report.ingested += 1;
         }
 
+        state.set("telegram", "offset", &offset.to_string())?;
         Ok(report)
     }
 }

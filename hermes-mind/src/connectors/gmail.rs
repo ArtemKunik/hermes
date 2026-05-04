@@ -3,12 +3,13 @@
 // Required env vars:
 //   HERMES_MIND_GMAIL_CLIENT_ID
 //   HERMES_MIND_GMAIL_CLIENT_SECRET
-//   HERMES_MIND_GMAIL_REFRESH_TOKEN   — obtained via OAuth2 consent flow (one-time)
+//   HERMES_MIND_GMAIL_REFRESH_TOKEN   — from `hermes-mind auth gmail`
 //
-// Fetches the 100 most recent threads and indexes subject + snippet as Email nodes.
-// Full body fetch is deferred to hermes mind_fetch.
+// Incremental: stores the Unix timestamp of the last synced message in
+// connector_state and uses Gmail's `after:<ts>` query filter on subsequent runs.
 
 use super::{Connector, SyncReport};
+use crate::sync_state::SyncState;
 use anyhow::{Context, Result};
 use hermes_engine::graph::{KnowledgeGraph, Node, NodeType};
 use serde::Deserialize;
@@ -35,6 +36,8 @@ struct MessageRef {
 struct MessageDetail {
     id: String,
     snippet: Option<String>,
+    #[serde(rename = "internalDate")]
+    internal_date: Option<String>,
     payload: Option<Payload>,
 }
 
@@ -81,12 +84,14 @@ impl GmailConnector {
         Ok(resp.access_token)
     }
 
-    fn list_message_ids(&self, token: &str) -> Result<Vec<String>> {
-        let resp: MessageList = ureq::get(&format!("{GMAIL_BASE}/messages"))
+    fn list_message_ids(&self, token: &str, query: &str) -> Result<Vec<String>> {
+        let mut req = ureq::get(&format!("{GMAIL_BASE}/messages"))
             .set("Authorization", &format!("Bearer {token}"))
-            .query("maxResults", "100")
-            .call()?
-            .into_json()?;
+            .query("maxResults", "100");
+        if !query.is_empty() {
+            req = req.query("q", query);
+        }
+        let resp: MessageList = req.call()?.into_json()?;
         Ok(resp
             .messages
             .unwrap_or_default()
@@ -96,14 +101,13 @@ impl GmailConnector {
     }
 
     fn get_message(&self, token: &str, id: &str) -> Result<MessageDetail> {
-        let detail: MessageDetail =
-            ureq::get(&format!("{GMAIL_BASE}/messages/{id}"))
-                .set("Authorization", &format!("Bearer {token}"))
-                .query("format", "metadata")
-                .query("metadataHeaders", "From")
-                .query("metadataHeaders", "Subject")
-                .call()?
-                .into_json()?;
+        let detail: MessageDetail = ureq::get(&format!("{GMAIL_BASE}/messages/{id}"))
+            .set("Authorization", &format!("Bearer {token}"))
+            .query("format", "metadata")
+            .query("metadataHeaders", "From")
+            .query("metadataHeaders", "Subject")
+            .call()?
+            .into_json()?;
         Ok(detail)
     }
 }
@@ -113,10 +117,20 @@ impl Connector for GmailConnector {
         "gmail"
     }
 
-    fn sync(&self, graph: &KnowledgeGraph) -> Result<SyncReport> {
+    fn sync(&self, graph: &KnowledgeGraph, state: &SyncState) -> Result<SyncReport> {
         let mut report = SyncReport::default();
         let token = self.access_token()?;
-        let ids = self.list_message_ids(&token)?;
+
+        let query = state
+            .get("gmail", "last_message_ts")?
+            .map(|ts| format!("after:{ts}"))
+            .unwrap_or_default();
+
+        let ids = self.list_message_ids(&token, &query)?;
+        let mut latest_ts: u64 = state
+            .get("gmail", "last_message_ts")?
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
 
         for id in ids {
             let Ok(msg) = self.get_message(&token, &id) else {
@@ -138,6 +152,14 @@ impl Connector for GmailConnector {
                 .unwrap_or("unknown")
                 .to_string();
 
+            // internalDate is milliseconds since epoch
+            let msg_ts = msg
+                .internal_date
+                .as_deref()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|ms| ms / 1000)
+                .unwrap_or(0);
+
             let node_id = format!("gmail::{}", msg.id);
             let snippet = msg.snippet.unwrap_or_default();
             let node = Node {
@@ -146,16 +168,20 @@ impl Connector for GmailConnector {
                 name: format!("{from}: {subject}"),
                 node_type: NodeType::Email,
                 file_path: None,
-                start_line: None,
+                start_line: Some(msg_ts as i64),
                 end_line: None,
                 summary: Some(snippet.chars().take(200).collect()),
                 content_hash: None,
             };
             graph.add_node(&node)?;
-            graph.index_fts(&node, &format!("{subject} {snippet}"))?;
+            graph.index_fts(&node, &format!("{subject} {from} {snippet}"))?;
+            latest_ts = latest_ts.max(msg_ts);
             report.ingested += 1;
         }
 
+        if latest_ts > 0 {
+            state.set("gmail", "last_message_ts", &latest_ts.to_string())?;
+        }
         Ok(report)
     }
 }

@@ -1,6 +1,8 @@
 mod auth;
 mod connectors;
 mod mcp_server;
+mod schema;
+mod sync_state;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -9,6 +11,7 @@ use connectors::{
     whatsapp::WhatsAppConnector, Connector,
 };
 use hermes_engine::{graph::KnowledgeGraph, HermesEngine};
+use sync_state::SyncState;
 use std::{env, path::PathBuf};
 
 #[derive(Parser)]
@@ -97,6 +100,7 @@ fn open_engine() -> Result<(HermesEngine, PathBuf)> {
         .to_string();
 
     let engine = HermesEngine::new(&db_path, &project_id)?;
+    schema::run_migrations(engine.db())?;
     Ok((engine, project_root))
 }
 
@@ -144,6 +148,7 @@ fn cmd_sync(
         return Ok(());
     }
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+    let sync_state = SyncState::new(engine.db().clone(), engine.project_id());
     for connector in connectors {
         if let Some(name) = filter {
             if connector.name() != name {
@@ -151,7 +156,7 @@ fn cmd_sync(
             }
         }
         eprintln!("[hermes-mind] syncing {}...", connector.name());
-        match connector.sync(&graph) {
+        match connector.sync(&graph, &sync_state) {
             Ok(r) => eprintln!(
                 "[hermes-mind] {}: {} ingested, {} skipped, {} errors",
                 connector.name(),

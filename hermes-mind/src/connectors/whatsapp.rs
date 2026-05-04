@@ -1,17 +1,14 @@
 // WhatsApp connector via a Baileys Node.js sidecar.
 //
-// The sidecar (tools/hermes-mind-wa/index.js) connects to WhatsApp Web,
-// authenticates via QR code on first run (saves creds to HERMES_MIND_WA_CREDS_PATH),
-// and streams newline-delimited JSON events to stdout:
-//
-//   {"type":"message","id":"ABC123","from":"+1234567890","chat":"group-name",
-//    "body":"hello world","timestamp":1700000000}
-//
 // Required env vars:
-//   HERMES_MIND_WA_SIDECAR_PATH  — path to index.js
+//   HERMES_MIND_WA_SIDECAR_PATH  — path to tools/hermes-mind-wa/index.js
 //   HERMES_MIND_WA_CREDS_PATH    — directory for creds.json (created on first run)
+//
+// Passes --since <unix_ts> to the sidecar so only messages newer than the
+// last sync are streamed. Persists the timestamp in connector_state.
 
 use super::{Connector, SyncReport};
+use crate::sync_state::SyncState;
 use anyhow::Result;
 use hermes_engine::graph::{KnowledgeGraph, Node, NodeType};
 use serde::Deserialize;
@@ -46,19 +43,26 @@ impl Connector for WhatsAppConnector {
         "whatsapp"
     }
 
-    fn sync(&self, graph: &KnowledgeGraph) -> Result<SyncReport> {
+    fn sync(&self, graph: &KnowledgeGraph, state: &SyncState) -> Result<SyncReport> {
         let mut report = SyncReport::default();
 
-        let mut child = Command::new("node")
-            .arg(&self.sidecar_path)
-            .arg("--creds")
-            .arg(&self.creds_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()?;
+        let since = state
+            .get("whatsapp", "last_ts")?
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(0);
 
+        let mut cmd = Command::new("node");
+        cmd.arg(&self.sidecar_path)
+            .arg("--creds")
+            .arg(&self.creds_path);
+        if since > 0 {
+            cmd.arg("--since").arg(since.to_string());
+        }
+
+        let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn()?;
         let stdout = child.stdout.take().expect("stdout is piped");
         let reader = BufReader::new(stdout);
+        let mut latest_ts = since;
 
         for line in reader.lines() {
             let line = line?;
@@ -81,10 +85,12 @@ impl Connector for WhatsAppConnector {
             };
             graph.add_node(&node)?;
             graph.index_fts(&node, &event.body)?;
+            latest_ts = latest_ts.max(event.timestamp);
             report.ingested += 1;
         }
 
         child.wait()?;
+        state.set("whatsapp", "last_ts", &latest_ts.to_string())?;
         Ok(report)
     }
 }
