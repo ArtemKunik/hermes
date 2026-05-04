@@ -1,3 +1,4 @@
+mod auth;
 mod connectors;
 mod mcp_server;
 
@@ -47,6 +48,15 @@ enum Commands {
     },
     /// List active connectors
     Status,
+    /// Run one-time OAuth2 consent flow for a connector
+    Auth {
+        /// Connector to authenticate: gmail, onedrive
+        connector: String,
+        #[arg(long)]
+        client_id: String,
+        #[arg(long)]
+        client_secret: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -61,6 +71,13 @@ fn main() -> Result<()> {
     match cli.command.unwrap() {
         Commands::Sync { connector } => cmd_sync(&engine, &project_root, &connectors, connector.as_deref()),
         Commands::Status => cmd_status(&connectors),
+        Commands::Auth { connector, client_id, client_secret } => {
+            match connector.as_str() {
+                "gmail"    => auth::auth_gmail(&client_id, &client_secret),
+                "onedrive" => auth::auth_onedrive(&client_id, &client_secret),
+                other => anyhow::bail!("unknown connector '{other}' — supported: gmail, onedrive"),
+            }
+        }
     }
 }
 
