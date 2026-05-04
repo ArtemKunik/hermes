@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 pub struct HashTracker<'a> {
@@ -14,55 +14,28 @@ impl<'a> HashTracker<'a> {
         Self { db, project_id }
     }
 
-    pub fn is_unchanged(&self, file_path: &str) -> Result<bool> {
+    pub fn load_all_hashes(&self) -> Result<HashMap<String, String>> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let stored_hash: Option<String> = conn
-            .query_row(
-                "SELECT content_hash FROM file_hashes WHERE file_path = ?1 AND project_id = ?2",
-                params![file_path, self.project_id],
-                |row| row.get(0),
-            )
-            .ok();
+        let mut stmt =
+            conn.prepare("SELECT file_path, content_hash FROM file_hashes WHERE project_id = ?1")?;
+        let rows = stmt.query_map(params![self.project_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
 
-        let Some(stored) = stored_hash else {
-            return Ok(false);
-        };
-
-        let content = std::fs::read_to_string(file_path)?;
-        let current_hash = compute_hash(&content);
-        Ok(stored == current_hash)
+        let mut hashes = HashMap::new();
+        for row in rows {
+            let (file_path, content_hash) = row?;
+            hashes.insert(file_path, content_hash);
+        }
+        Ok(hashes)
     }
 
-    pub fn update_hash(&self, file_path: &str, actual_path: &Path) -> Result<()> {
-        let content = std::fs::read_to_string(actual_path)?;
-        let hash = compute_hash(&content);
+    pub fn store_hash(&self, file_path: &str, hash: &str) -> Result<()> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         conn.execute(
             "INSERT OR REPLACE INTO file_hashes (file_path, project_id, content_hash, indexed_at)
-             VALUES (?1, ?2, ?3, datetime('now'))",
+              VALUES (?1, ?2, ?3, datetime('now'))",
             params![file_path, self.project_id, hash],
-        )?;
-        Ok(())
-    }
-
-    pub fn is_chunk_unchanged(&self, chunk_key: &str, current_hash: &str) -> Result<bool> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let stored: Option<String> = conn
-            .query_row(
-                "SELECT content_hash FROM file_hashes WHERE file_path = ?1 AND project_id = ?2",
-                params![chunk_key, self.project_id],
-                |row| row.get(0),
-            )
-            .ok();
-        Ok(stored.as_deref() == Some(current_hash))
-    }
-
-    pub fn update_chunk_hash(&self, chunk_key: &str, hash: &str) -> Result<()> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        conn.execute(
-            "INSERT OR REPLACE INTO file_hashes (file_path, project_id, content_hash, indexed_at)
-             VALUES (?1, ?2, ?3, datetime('now'))",
-            params![chunk_key, self.project_id, hash],
         )?;
         Ok(())
     }
@@ -100,35 +73,37 @@ mod tests {
     }
 
     #[test]
-    fn test_chunk_unchanged_returns_false_when_not_stored() {
+    fn test_load_all_hashes_returns_empty_when_not_stored() {
         use crate::HermesEngine;
         let engine = HermesEngine::in_memory("chunk-test").unwrap();
         let tracker = HashTracker::new(engine.db(), "chunk-test");
-        let result = tracker.is_chunk_unchanged("path/to/file.rs::fn_name", "abc123").unwrap();
-        assert!(!result);
+        let result = tracker.load_all_hashes().unwrap();
+        assert!(result.is_empty());
     }
 
     #[test]
-    fn test_chunk_unchanged_returns_true_after_store() {
+    fn test_load_all_hashes_includes_stored_chunk_hash() {
         use crate::HermesEngine;
         let engine = HermesEngine::in_memory("chunk-test2").unwrap();
         let tracker = HashTracker::new(engine.db(), "chunk-test2");
         let key = "path/to/file.rs::fn_main";
         let hash = compute_hash("fn main() { println!(\"hello\"); }");
-        tracker.update_chunk_hash(key, &hash).unwrap();
-        assert!(tracker.is_chunk_unchanged(key, &hash).unwrap());
+        tracker.store_hash(key, &hash).unwrap();
+        let hashes = tracker.load_all_hashes().unwrap();
+        assert_eq!(hashes.get(key), Some(&hash));
     }
 
     #[test]
-    fn test_chunk_changed_returns_false_on_different_hash() {
+    fn test_store_hash_overwrites_existing_value() {
         use crate::HermesEngine;
         let engine = HermesEngine::in_memory("chunk-test3").unwrap();
         let tracker = HashTracker::new(engine.db(), "chunk-test3");
         let key = "path/to/file.rs::fn_foo";
         let old_hash = compute_hash("fn foo() {}");
         let new_hash = compute_hash("fn foo() { do_something(); }");
-        tracker.update_chunk_hash(key, &old_hash).unwrap();
-        assert!(!tracker.is_chunk_unchanged(key, &new_hash).unwrap());
+        tracker.store_hash(key, &old_hash).unwrap();
+        tracker.store_hash(key, &new_hash).unwrap();
+        let hashes = tracker.load_all_hashes().unwrap();
+        assert_eq!(hashes.get(key), Some(&new_hash));
     }
 }
-

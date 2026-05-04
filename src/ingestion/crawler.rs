@@ -2,10 +2,8 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "rs", "tsx", "ts", "jsx", "js", "md", "toml", "json", "css",
-    // scripting / config
-    "py", "yml", "yaml", "sh", "ps1",
-    // infrastructure
+    "rs", "tsx", "ts", "jsx", "js", "md", "toml", "json", "css", // scripting / config
+    "py", "yml", "yaml", "sh", "ps1", // infrastructure
     "tf",
 ];
 

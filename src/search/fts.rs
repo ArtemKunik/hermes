@@ -160,7 +160,14 @@ mod tests {
     #[test]
     fn ignores_punctuation_like_slashes() {
         let tokens = extract_words("/api/alerts handler");
-        assert_eq!(tokens, vec!["api".to_string(), "alerts".to_string(), "handler".to_string()]);
+        assert_eq!(
+            tokens,
+            vec![
+                "api".to_string(),
+                "alerts".to_string(),
+                "handler".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -186,4 +193,3 @@ mod tests {
         assert!(results.is_empty());
     }
 }
-

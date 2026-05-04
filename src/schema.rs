@@ -31,15 +31,13 @@ fn add_config_registry_table(conn: &Connection) -> Result<()> {
 }
 
 fn add_name_lower_index(conn: &Connection) {
-    let _ = conn.execute_batch(
-        "CREATE INDEX IF NOT EXISTS idx_nodes_name_lower ON nodes (LOWER(name));",
-    );
+    let _ = conn
+        .execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_name_lower ON nodes (LOWER(name));");
 }
 
 fn add_accounting_session_id(conn: &Connection) {
-    let _ = conn.execute_batch(
-        "ALTER TABLE accounting ADD COLUMN session_id TEXT NOT NULL DEFAULT '';",
-    );
+    let _ = conn
+        .execute_batch("ALTER TABLE accounting ADD COLUMN session_id TEXT NOT NULL DEFAULT '';");
 }
 
 fn add_vector_column(conn: &Connection) {

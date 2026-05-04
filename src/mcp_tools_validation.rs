@@ -27,9 +27,8 @@ pub fn tool_validate_env(engine: &HermesEngine, env_var: &str) -> Result<String>
     }
 
     // Collect all known keys for Levenshtein-based suggestions.
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT key FROM config_registry WHERE project_id = ?1 ORDER BY key",
-    )?;
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT key FROM config_registry WHERE project_id = ?1 ORDER BY key")?;
     let known: Vec<String> = stmt
         .query_map([project_id], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()?;
@@ -167,7 +166,9 @@ mod tests {
             serde_json::from_str(&tool_validate_env(&engine, "DATABASE_URI").unwrap()).unwrap();
         assert_eq!(result["valid"], false);
         let suggestions = result["suggestions"].as_array().unwrap();
-        assert!(suggestions.iter().any(|s| s.as_str() == Some("DATABASE_URL")));
+        assert!(suggestions
+            .iter()
+            .any(|s| s.as_str() == Some("DATABASE_URL")));
     }
 
     #[test]

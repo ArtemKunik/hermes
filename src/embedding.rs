@@ -58,10 +58,10 @@ struct EmbeddingValues {
 
 impl EmbeddingGenerator {
     pub fn new() -> Result<Self> {
-        let api_key = env::var("GEMINI_API_KEY")
-            .context("GEMINI_API_KEY environment variable not set")?;
-        let model = env::var("GEMINI_EMBEDDING_MODEL")
-            .unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+        let api_key =
+            env::var("GEMINI_API_KEY").context("GEMINI_API_KEY environment variable not set")?;
+        let model =
+            env::var("GEMINI_EMBEDDING_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
         let rpm: usize = env::var("EMBEDDING_RPM")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -80,7 +80,10 @@ impl EmbeddingGenerator {
     }
 
     pub async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
-        let _permit = self.rate_limiter.acquire().await
+        let _permit = self
+            .rate_limiter
+            .acquire()
+            .await
             .map_err(|e| anyhow::anyhow!("Rate limiter closed: {e}"))?;
 
         let url = format!(

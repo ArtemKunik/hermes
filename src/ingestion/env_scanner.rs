@@ -136,9 +136,12 @@ impl EnvScanner {
             }
             for cap in pattern.regex.captures_iter(content) {
                 let var_name = if pattern.language == "javascript" {
-                    cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str().to_string())
+                    cap.get(1)
+                        .or_else(|| cap.get(2))
+                        .map(|m| m.as_str().to_string())
                 } else {
-                    cap.get(pattern.var_capture_index).map(|m| m.as_str().to_string())
+                    cap.get(pattern.var_capture_index)
+                        .map(|m| m.as_str().to_string())
                 };
                 if let Some(name) = var_name {
                     if REGISTRY_WHITELIST.contains(&name.as_str()) {
@@ -158,11 +161,18 @@ impl EnvScanner {
             for cap in self.js_destructure_re.captures_iter(content) {
                 if let Some(m) = cap.get(1) {
                     for item in m.as_str().split(',') {
-                        let key = item.split(':').next().unwrap()
-                            .split('=').next().unwrap()
+                        let key = item
+                            .split(':')
+                            .next()
+                            .unwrap()
+                            .split('=')
+                            .next()
+                            .unwrap()
                             .trim();
                         if !key.is_empty()
-                            && key.chars().all(|c| c.is_uppercase() || c == '_' || c.is_numeric())
+                            && key
+                                .chars()
+                                .all(|c| c.is_uppercase() || c == '_' || c.is_numeric())
                             && !REGISTRY_WHITELIST.contains(&key)
                         {
                             vars.push(DiscoveredEnvVar {
@@ -181,14 +191,14 @@ impl EnvScanner {
 
     fn pattern_matches_file(&self, pattern: &EnvPattern, file_ext: &str, file_name: &str) -> bool {
         match pattern.language.as_str() {
-            "python"     => file_ext == "py",
+            "python" => file_ext == "py",
             "javascript" => matches!(file_ext, "js" | "ts" | "jsx" | "tsx"),
-            "rust"       => file_ext == "rs",
-            "shell"      => matches!(file_ext, "sh" | "bash" | "zsh"),
-            "env"        => file_name.starts_with(".env"),
-            "yaml"       => matches!(file_ext, "yaml" | "yml"),
-            "markdown"   => file_ext == "md",
-            _            => true,
+            "rust" => file_ext == "rs",
+            "shell" => matches!(file_ext, "sh" | "bash" | "zsh"),
+            "env" => file_name.starts_with(".env"),
+            "yaml" => matches!(file_ext, "yaml" | "yml"),
+            "markdown" => file_ext == "md",
+            _ => true,
         }
     }
 
@@ -259,7 +269,9 @@ mod tests {
         let scanner = EnvScanner::new().unwrap();
         let content = r#"let val = std::env::var("MY_SECRET_KEY").unwrap();"#;
         let vars = scanner.scan_file(Path::new("main.rs"), content);
-        assert!(vars.iter().any(|v| v.name == "MY_SECRET_KEY" && !v.is_definition));
+        assert!(vars
+            .iter()
+            .any(|v| v.name == "MY_SECRET_KEY" && !v.is_definition));
     }
 
     #[test]
@@ -267,7 +279,9 @@ mod tests {
         let scanner = EnvScanner::new().unwrap();
         let content = "MY_SECRET_KEY=supersecret\nDB_URL=postgres://localhost/db\n";
         let vars = scanner.scan_file(Path::new(".env"), content);
-        assert!(vars.iter().any(|v| v.name == "MY_SECRET_KEY" && v.is_definition));
+        assert!(vars
+            .iter()
+            .any(|v| v.name == "MY_SECRET_KEY" && v.is_definition));
         assert!(vars.iter().any(|v| v.name == "DB_URL" && v.is_definition));
     }
 
@@ -285,6 +299,9 @@ mod tests {
         let scanner = EnvScanner::new().unwrap();
         let content = "let port = std::env::var(\"PORT\").unwrap_or_default();";
         let vars = scanner.scan_file(Path::new("main.rs"), content);
-        assert!(!vars.iter().any(|v| v.name == "PORT"), "PORT is whitelisted and must be excluded");
+        assert!(
+            !vars.iter().any(|v| v.name == "PORT"),
+            "PORT is whitelisted and must be excluded"
+        );
     }
 }

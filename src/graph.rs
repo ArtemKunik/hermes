@@ -177,6 +177,47 @@ impl KnowledgeGraph {
             .collect())
     }
 
+    pub fn get_node_vectors_by_ids(&self, node_ids: &[String]) -> Result<Vec<(Node, Vec<f32>)>> {
+        if node_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let placeholders = std::iter::repeat("?")
+            .take(node_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, vector
+             FROM nodes
+             WHERE project_id = ?1 AND vector IS NOT NULL AND id IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params_iter =
+            std::iter::once(self.project_id.as_str()).chain(node_ids.iter().map(String::as_str));
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(params_iter), |row| {
+                let node = Node {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    name: row.get(2)?,
+                    node_type: NodeType::parse_str(&row.get::<_, String>(3)?),
+                    file_path: row.get(4)?,
+                    start_line: row.get(5)?,
+                    end_line: row.get(6)?,
+                    summary: row.get(7)?,
+                    content_hash: row.get(8)?,
+                };
+                let blob: Vec<u8> = row.get(9)?;
+                Ok((node, blob))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .map(|(node, blob)| (node, vector_ops::blob_to_vec(&blob)))
+            .collect())
+    }
+
     /// Write a file node, its FTS entry, all changed chunk nodes/edges, and
     /// the associated chunk hashes in a single SQLite transaction.  One lock
     /// acquisition, one BEGIN/COMMIT — much faster than N individual calls.
@@ -217,15 +258,31 @@ impl KnowledgeGraph {
                 file_node.content_hash, now, file_vec_blob,
             ],
         )?;
-        conn.execute("DELETE FROM fts_content WHERE node_id = ?1", params![file_node.id])?;
+        conn.execute(
+            "DELETE FROM fts_content WHERE node_id = ?1",
+            params![file_node.id],
+        )?;
         conn.execute(
             "INSERT INTO fts_content (node_id, project_id, name, content, file_path)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
-                file_node.id, file_node.project_id, file_node.name,
-                file_content, file_node.file_path,
+                file_node.id,
+                file_node.project_id,
+                file_node.name,
+                file_content,
+                file_node.file_path,
             ],
         )?;
+        if let (Some(file_path), Some(content_hash)) = (
+            file_node.file_path.as_deref(),
+            file_node.content_hash.as_deref(),
+        ) {
+            conn.execute(
+                "INSERT OR REPLACE INTO file_hashes (file_path, project_id, content_hash, indexed_at)
+                 VALUES (?1, ?2, ?3, datetime('now'))",
+                params![file_path, file_node.project_id, content_hash],
+            )?;
+        }
 
         for record in chunks {
             let chunk_vec_blob = node_vector_blob(&record.node);
@@ -240,13 +297,19 @@ impl KnowledgeGraph {
                     record.node.content_hash, now, chunk_vec_blob,
                 ],
             )?;
-            conn.execute("DELETE FROM fts_content WHERE node_id = ?1", params![record.node.id])?;
+            conn.execute(
+                "DELETE FROM fts_content WHERE node_id = ?1",
+                params![record.node.id],
+            )?;
             conn.execute(
                 "INSERT INTO fts_content (node_id, project_id, name, content, file_path)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
-                    record.node.id, record.node.project_id, record.node.name,
-                    record.content, record.node.file_path,
+                    record.node.id,
+                    record.node.project_id,
+                    record.node.name,
+                    record.content,
+                    record.node.file_path,
                 ],
             )?;
             conn.execute(

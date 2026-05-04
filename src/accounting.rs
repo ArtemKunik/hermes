@@ -247,7 +247,9 @@ mod tests {
 
         acct.record_query("q1", 100, 0, 5000).unwrap();
 
-        let stats = acct.get_stats_since(Some(Duration::from_secs(3600))).unwrap();
+        let stats = acct
+            .get_stats_since(Some(Duration::from_secs(3600)))
+            .unwrap();
         assert_eq!(stats.total_queries, 1);
     }
 
@@ -312,4 +314,3 @@ mod tests {
         assert_eq!(stats.cumulative_savings_pct, 0.0);
     }
 }
-

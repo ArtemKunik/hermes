@@ -12,12 +12,17 @@ use hermes_engine::{
 use std::{env, path::PathBuf};
 
 #[derive(Parser)]
-#[command(name = "hermes", about = "Token-efficient code navigation", arg_required_else_help = true, after_help = "\
+#[command(
+    name = "hermes",
+    about = "Token-efficient code navigation",
+    arg_required_else_help = true,
+    after_help = "\
 Environment variables:
   HERMES_PROJECT_ROOT             Root directory to index (default: cwd)
   HERMES_DB_PATH                  SQLite DB path (default: <project_root>/.hermes.db)
   HERMES_AUTO_INDEX_INTERVAL_SECS Re-index interval when running as MCP server
-                                  (default: 300 = 5 min; 0 = disabled)")]
+                                  (default: 300 = 5 min; 0 = disabled)"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -33,25 +38,16 @@ enum Commands {
     Index,
 
     /// <query> - Search codebase; returns pointers (no full content)
-    Search {
-        query: String,
-    },
+    Search { query: String },
 
     /// <node_id> - Fetch full content for a specific pointer
-    Fetch {
-        node_id: String,
-    },
+    Fetch { node_id: String },
 
     /// <type> <text> - Record a decision/learning (types: architecture, decision, learning, constraint, error_pattern, api_contract)
-    Fact {
-        fact_type: String,
-        content: String,
-    },
+    Fact { fact_type: String, content: String },
 
     /// [type] - List active facts, optionally filtered by type
-    Facts {
-        filter: Option<String>,
-    },
+    Facts { filter: Option<String> },
 
     /// [duration] or [--since <duration>] - Show token savings (duration: 24h, 7d, 30d, all)
     Stats {
@@ -126,7 +122,11 @@ fn cmd_search(engine: &HermesEngine, query: &str) -> Result<()> {
     let search = SearchEngine::new(&graph, engine.search_cache());
     let response = search.search(query, 10, &SearchMode::Smart)?;
 
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
     acct.record_query(
         query,
         response.accounting.pointer_tokens,
@@ -147,7 +147,11 @@ fn cmd_fetch(engine: &HermesEngine, node_id: &str) -> Result<()> {
     };
 
     let traditional_estimate = response.token_count * 15;
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
     acct.record_query(node_id, 0, response.token_count, traditional_estimate)?;
 
     println!("{}", serde_json::to_string_pretty(&response)?);
@@ -171,7 +175,11 @@ fn cmd_list_facts(engine: &HermesEngine, filter: Option<&str>) -> Result<()> {
 }
 
 fn cmd_stats(engine: &HermesEngine, since_arg: Option<&str>) -> Result<()> {
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
     let session = acct.get_session_stats()?;
 
     let since_dur = since_arg.and_then(parse_since_duration);
