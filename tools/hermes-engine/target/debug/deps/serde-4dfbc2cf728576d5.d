@@ -1,0 +1,12 @@
+D:\source\SmartPositionAssistant\tools\kronos-engine\target\debug\deps\serde-4dfbc2cf728576d5.d: C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs D:\source\SmartPositionAssistant\tools\kronos-engine\target\debug\build\serde-170d25af167437ff\out/private.rs
+
+D:\source\SmartPositionAssistant\tools\kronos-engine\target\debug\deps\libserde-4dfbc2cf728576d5.rmeta: C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs D:\source\SmartPositionAssistant\tools\kronos-engine\target\debug\build\serde-170d25af167437ff\out/private.rs
+
+C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs:
+C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs:
+C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs:
+C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs:
+C:\Users\artem\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs:
+D:\source\SmartPositionAssistant\tools\kronos-engine\target\debug\build\serde-170d25af167437ff\out/private.rs:
+
+# env-dep:OUT_DIR=D:\\source\\SmartPositionAssistant\\tools\\kronos-engine\\target\\debug\\build\\serde-170d25af167437ff\\out

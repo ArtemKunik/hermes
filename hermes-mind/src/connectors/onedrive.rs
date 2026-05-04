@@ -3,12 +3,13 @@
 // Required env vars:
 //   HERMES_MIND_ONEDRIVE_CLIENT_ID
 //   HERMES_MIND_ONEDRIVE_CLIENT_SECRET
-//   HERMES_MIND_ONEDRIVE_REFRESH_TOKEN  — obtained via OAuth2 consent flow (one-time)
+//   HERMES_MIND_ONEDRIVE_REFRESH_TOKEN  — from `hermes-mind auth onedrive`
 //
-// Indexes file names, paths, and descriptions from the root drive.
-// Full file content fetch is deferred to hermes mind_fetch.
+// Incremental: stores the Graph delta link in connector_state after the first
+// full sync. Subsequent runs call the delta link directly to get only changes.
 
 use super::{Connector, SyncReport};
+use crate::sync_state::SyncState;
 use anyhow::{Context, Result};
 use hermes_engine::graph::{KnowledgeGraph, Node, NodeType};
 use serde::Deserialize;
@@ -24,6 +25,10 @@ struct TokenResponse {
 #[derive(Deserialize)]
 struct DriveItemList {
     value: Vec<DriveItem>,
+    #[serde(rename = "@odata.deltaLink")]
+    delta_link: Option<String>,
+    #[serde(rename = "@odata.nextLink")]
+    next_link: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -34,6 +39,7 @@ struct DriveItem {
     web_url: Option<String>,
     description: Option<String>,
     file: Option<serde_json::Value>,
+    deleted: Option<serde_json::Value>,
 }
 
 pub struct OneDriveConnector {
@@ -69,14 +75,24 @@ impl OneDriveConnector {
         Ok(resp.access_token)
     }
 
-    fn list_items(&self, token: &str) -> Result<Vec<DriveItem>> {
-        let resp: DriveItemList =
-            ureq::get(&format!("{GRAPH_BASE}/root/children"))
+    /// Fetches pages following next_link until a delta_link is returned.
+    fn fetch_pages(&self, token: &str, start_url: &str) -> Result<(Vec<DriveItem>, Option<String>)> {
+        let mut all_items = Vec::new();
+        let mut url = start_url.to_string();
+
+        loop {
+            let page: DriveItemList = ureq::get(&url)
                 .set("Authorization", &format!("Bearer {token}"))
-                .query("$top", "100")
                 .call()?
                 .into_json()?;
-        Ok(resp.value)
+
+            all_items.extend(page.value);
+
+            match (page.next_link, page.delta_link) {
+                (Some(next), _) => url = next,
+                (None, delta) => return Ok((all_items, delta)),
+            }
+        }
     }
 }
 
@@ -85,13 +101,21 @@ impl Connector for OneDriveConnector {
         "onedrive"
     }
 
-    fn sync(&self, graph: &KnowledgeGraph) -> Result<SyncReport> {
+    fn sync(&self, graph: &KnowledgeGraph, state: &SyncState) -> Result<SyncReport> {
         let mut report = SyncReport::default();
         let token = self.access_token()?;
-        let items = self.list_items(&token)?;
+
+        let start_url = state
+            .get("onedrive", "delta_link")?
+            .unwrap_or_else(|| {
+                format!("{GRAPH_BASE}/root/children?$top=100")
+            });
+
+        let (items, new_delta) = self.fetch_pages(&token, &start_url)?;
 
         for item in items {
-            if item.file.is_none() {
+            // Skip deleted items and folders
+            if item.deleted.is_some() || item.file.is_none() {
                 report.skipped += 1;
                 continue;
             }
@@ -115,6 +139,9 @@ impl Connector for OneDriveConnector {
             report.ingested += 1;
         }
 
+        if let Some(link) = new_delta {
+            state.set("onedrive", "delta_link", &link)?;
+        }
         Ok(report)
     }
 }
