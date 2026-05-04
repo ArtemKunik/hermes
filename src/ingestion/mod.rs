@@ -3,7 +3,7 @@ pub mod crawler;
 pub mod env_scanner;
 pub mod hash_tracker;
 
-use crate::graph::{EdgeType, KnowledgeGraph, NodeType};
+use crate::graph::{ChunkWriteRecord, EdgeType, KnowledgeGraph, NodeType};
 use anyhow::Result;
 use rayon::prelude::*;
 use std::collections::HashSet;
@@ -83,19 +83,17 @@ impl<'a> IngestionPipeline<'a> {
 
     /// TRACK-040: Scan every crawled file for env var references and populate config_registry.
     fn scan_and_populate_env_vars(&self, files: &[PathBuf]) -> Result<()> {
-        // Read and scan files incrementally to avoid holding all file contents in memory at
-        // once, and use a lossy UTF-8 decode path consistent with `ingest_file`.
-        let mut discovered = Vec::new();
-
-        for p in files.iter() {
-            let bytes = match std::fs::read(p) {
-                Ok(b) => b,
-                Err(_) => continue,
-            };
-            let content = String::from_utf8_lossy(&bytes).into_owned();
-            let path_str = p.to_string_lossy().to_string();
-            discovered.extend(self.env_scanner.scan_files(&[(path_str, content)]));
-        }
+        let discovered: Vec<env_scanner::DiscoveredEnvVar> = files
+            .par_iter()
+            .flat_map(|p| {
+                let bytes = match std::fs::read(p) {
+                    Ok(b) => b,
+                    Err(_) => return Vec::new(),
+                };
+                let content = String::from_utf8_lossy(&bytes).into_owned();
+                self.env_scanner.scan_file(p, &content)
+            })
+            .collect();
 
         let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         self.env_scanner
@@ -136,19 +134,14 @@ impl<'a> IngestionPipeline<'a> {
             .content_hash(&file_hash)
             .build();
 
-        self.graph.add_node(&file_node)?;
-        self.graph.index_fts(&file_node, &content)?;
-
-        let mut created = 1;
-
+        // Phase 1: determine which chunks changed (fast read-only DB access).
+        let mut chunk_records: Vec<ChunkWriteRecord> = Vec::new();
         for chunk in &chunks {
             let chunk_key = format!("{}::{}", path_str, chunk.name);
             let chunk_hash = hash_tracker::compute_hash(&chunk.content);
-
             if self.hash_tracker.is_chunk_unchanged(&chunk_key, &chunk_hash)? {
                 continue;
             }
-
             let chunk_node = self
                 .graph
                 .create_node_builder()
@@ -158,10 +151,6 @@ impl<'a> IngestionPipeline<'a> {
                 .lines(chunk.start_line as i64, chunk.end_line as i64)
                 .summary(&chunk.summary)
                 .build();
-
-            self.graph.add_node(&chunk_node)?;
-            self.graph.index_fts(&chunk_node, &chunk.content)?;
-
             let edge = self
                 .graph
                 .create_edge_builder()
@@ -169,11 +158,20 @@ impl<'a> IngestionPipeline<'a> {
                 .target(&chunk_node.id)
                 .edge_type(EdgeType::Contains)
                 .build();
-
-            self.graph.add_edge(&edge)?;
-            self.hash_tracker.update_chunk_hash(&chunk_key, &chunk_hash)?;
-            created += 1;
+            chunk_records.push(ChunkWriteRecord {
+                node: chunk_node,
+                content: chunk.content.clone(),
+                edge,
+                hash_key: chunk_key,
+                hash_value: chunk_hash,
+            });
         }
+
+        let created = 1 + chunk_records.len();
+
+        // Phase 2: write the file node, all chunk nodes/edges, and chunk hashes
+        // in a single transaction — one lock acquisition and one BEGIN/COMMIT.
+        self.graph.ingest_file_batch(&file_node, &content, &chunk_records)?;
 
         Ok(created)
     }

@@ -1,4 +1,5 @@
 pub mod accounting;
+pub mod vector_ops;
 /// Optional Gemini embedding client — not used by the default search pipeline.
 pub mod embedding;
 pub mod mcp_server;

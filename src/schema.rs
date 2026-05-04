@@ -7,6 +7,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     add_accounting_session_id(conn);
     add_name_lower_index(conn);
     add_config_registry_table(conn)?;
+    add_vector_column(conn);
     Ok(())
 }
 
@@ -39,6 +40,10 @@ fn add_accounting_session_id(conn: &Connection) {
     let _ = conn.execute_batch(
         "ALTER TABLE accounting ADD COLUMN session_id TEXT NOT NULL DEFAULT '';",
     );
+}
+
+fn add_vector_column(conn: &Connection) {
+    let _ = conn.execute_batch("ALTER TABLE nodes ADD COLUMN vector BLOB;");
 }
 
 fn create_fts_table(conn: &Connection) -> Result<()> {
