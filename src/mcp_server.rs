@@ -45,11 +45,21 @@ impl EngineCache {
             .unwrap_or_else(|_| self.default_root.clone());
 
         if root == default_canonical {
+            eprintln!(
+                "[hermes] resolve: project_root={:?} -> matched default project_id={}",
+                root_str,
+                self.default_engine.project_id()
+            );
             return Ok((self.default_engine.clone(), self.default_root.clone()));
         }
 
         let mut cache = self.extra.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         if let Some(engine) = cache.get(&root) {
+            eprintln!(
+                "[hermes] resolve: project_root={:?} -> cached project_id={}",
+                root_str,
+                engine.project_id()
+            );
             return Ok((engine.clone(), root.clone()));
         }
 
@@ -59,6 +69,10 @@ impl EngineCache {
             .unwrap_or("unknown")
             .to_string();
         let engine = HermesEngine::new(&root.join(".hermes.db"), &project_id)?;
+        eprintln!(
+            "[hermes] resolve: project_root={:?} -> opened new project_id={}",
+            root_str, project_id
+        );
         cache.insert(root.clone(), engine.clone());
         Ok((engine, root))
     }
@@ -264,16 +278,23 @@ fn handle_tool_call(cache: &EngineCache, params: &Value) -> Result<Value> {
     );
     let (engine, project_root) = cache.resolve(Some(project_root_arg))?;
 
+    eprintln!(
+        "[hermes] tool={} project_id={} project_root={}",
+        name,
+        engine.project_id(),
+        project_root.display()
+    );
+
     let text = match name {
         "hermes_search" => {
             let query = args["query"].as_str().unwrap_or("");
             anyhow::ensure!(!query.is_empty(), "hermes_search requires 'query'");
-            tool_search(&engine, query)?
+            tool_search(&engine, query, &project_root)?
         }
         "hermes_fetch" => {
             let node_id = args["node_id"].as_str().unwrap_or("");
             anyhow::ensure!(!node_id.is_empty(), "hermes_fetch requires 'node_id'");
-            tool_fetch(&engine, node_id)?
+            tool_fetch(&engine, node_id, &project_root)?
         }
         "hermes_index" => tool_index(&engine, &project_root)?,
         "hermes_stats" => tool_stats(&engine)?,
@@ -302,7 +323,7 @@ fn handle_tool_call(cache: &EngineCache, params: &Value) -> Result<Value> {
     Ok(json!({ "content": [{ "type": "text", "text": text }] }))
 }
 
-fn tool_search(engine: &HermesEngine, query: &str) -> Result<String> {
+fn tool_search(engine: &HermesEngine, query: &str, project_root: &Path) -> Result<String> {
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let search = SearchEngine::new(&graph, engine.search_cache());
     let resp = search.search(query, 10, &SearchMode::Smart)?;
@@ -317,10 +338,13 @@ fn tool_search(engine: &HermesEngine, query: &str) -> Result<String> {
         0,
         resp.accounting.traditional_rag_estimate,
     )?;
-    Ok(serde_json::to_string_pretty(&resp)?)
+    let mut out = serde_json::to_value(&resp)?;
+    out["project_id"] = json!(engine.project_id());
+    out["project_root"] = json!(project_root.display().to_string());
+    Ok(serde_json::to_string_pretty(&out)?)
 }
 
-fn tool_fetch(engine: &HermesEngine, node_id: &str) -> Result<String> {
+fn tool_fetch(engine: &HermesEngine, node_id: &str, project_root: &Path) -> Result<String> {
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let search = SearchEngine::new(&graph, engine.search_cache());
     let Some(resp) = search.fetch(node_id)? else {
@@ -332,7 +356,10 @@ fn tool_fetch(engine: &HermesEngine, node_id: &str) -> Result<String> {
         engine.session_id(),
     );
     acct.record_query(node_id, 0, resp.token_count, resp.token_count * 15)?;
-    Ok(serde_json::to_string_pretty(&resp)?)
+    let mut out = serde_json::to_value(&resp)?;
+    out["project_id"] = json!(engine.project_id());
+    out["project_root"] = json!(project_root.display().to_string());
+    Ok(serde_json::to_string_pretty(&out)?)
 }
 
 fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> {
