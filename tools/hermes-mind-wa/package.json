@@ -1,0 +1,18 @@
+{
+  "name": "hermes-mind-wa",
+  "version": "0.1.0",
+  "description": "Baileys WhatsApp sidecar for hermes-mind — streams messages as JSON to stdout",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "auth": "node index.js --auth-only"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "pino": "^9.0.0",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

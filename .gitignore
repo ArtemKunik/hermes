@@ -9,7 +9,6 @@ hermes-kotlin/
 .agent/
 .vscode/*
 !.vscode/mcp.json
-tools/
 
 # Hermes database files
 .hermes.db
