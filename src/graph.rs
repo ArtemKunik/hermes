@@ -1,3 +1,4 @@
+use crate::vector_ops;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection};
@@ -113,6 +114,15 @@ pub struct KnowledgeGraph {
     project_id: String,
 }
 
+/// Data for one changed chunk, passed to [`KnowledgeGraph::ingest_file_batch`].
+pub struct ChunkWriteRecord {
+    pub node: Node,
+    pub content: String,
+    pub edge: Edge,
+    pub hash_key: String,
+    pub hash_value: String,
+}
+
 impl KnowledgeGraph {
     pub fn new(db: Arc<Mutex<Connection>>, project_id: &str) -> Self {
         Self {
@@ -124,23 +134,136 @@ impl KnowledgeGraph {
     pub fn add_node(&self, node: &Node) -> Result<()> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let now = Utc::now().to_rfc3339();
+        let blob = node_vector_blob(node);
         conn.execute(
             "INSERT OR REPLACE INTO nodes
-             (id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             (id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, updated_at, vector)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
-                node.id,
-                node.project_id,
-                node.name,
-                node.node_type.as_str(),
-                node.file_path,
-                node.start_line,
-                node.end_line,
-                node.summary,
-                node.content_hash,
-                now,
+                node.id, node.project_id, node.name, node.node_type.as_str(),
+                node.file_path, node.start_line, node.end_line, node.summary,
+                node.content_hash, now, blob,
             ],
         )?;
+        Ok(())
+    }
+
+    pub fn get_all_node_vectors(&self) -> Result<Vec<(Node, Vec<f32>)>> {
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, vector
+             FROM nodes WHERE project_id = ?1 AND vector IS NOT NULL",
+        )?;
+        let rows = stmt
+            .query_map(params![self.project_id], |row| {
+                let node = Node {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    name: row.get(2)?,
+                    node_type: NodeType::parse_str(&row.get::<_, String>(3)?),
+                    file_path: row.get(4)?,
+                    start_line: row.get(5)?,
+                    end_line: row.get(6)?,
+                    summary: row.get(7)?,
+                    content_hash: row.get(8)?,
+                };
+                let blob: Vec<u8> = row.get(9)?;
+                Ok((node, blob))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows
+            .into_iter()
+            .map(|(node, blob)| (node, vector_ops::blob_to_vec(&blob)))
+            .collect())
+    }
+
+    /// Write a file node, its FTS entry, all changed chunk nodes/edges, and
+    /// the associated chunk hashes in a single SQLite transaction.  One lock
+    /// acquisition, one BEGIN/COMMIT — much faster than N individual calls.
+    pub fn ingest_file_batch(
+        &self,
+        file_node: &Node,
+        file_content: &str,
+        chunks: &[ChunkWriteRecord],
+    ) -> Result<()> {
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        conn.execute_batch("BEGIN")?;
+        let result = Self::do_ingest_file_batch(&conn, file_node, file_content, chunks);
+        if result.is_ok() {
+            conn.execute_batch("COMMIT")?;
+        } else {
+            let _ = conn.execute_batch("ROLLBACK");
+        }
+        result
+    }
+
+    fn do_ingest_file_batch(
+        conn: &Connection,
+        file_node: &Node,
+        file_content: &str,
+        chunks: &[ChunkWriteRecord],
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+
+        let file_vec_blob = node_vector_blob(file_node);
+        conn.execute(
+            "INSERT OR REPLACE INTO nodes
+             (id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, updated_at, vector)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                file_node.id, file_node.project_id, file_node.name,
+                file_node.node_type.as_str(), file_node.file_path,
+                file_node.start_line, file_node.end_line, file_node.summary,
+                file_node.content_hash, now, file_vec_blob,
+            ],
+        )?;
+        conn.execute("DELETE FROM fts_content WHERE node_id = ?1", params![file_node.id])?;
+        conn.execute(
+            "INSERT INTO fts_content (node_id, project_id, name, content, file_path)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                file_node.id, file_node.project_id, file_node.name,
+                file_content, file_node.file_path,
+            ],
+        )?;
+
+        for record in chunks {
+            let chunk_vec_blob = node_vector_blob(&record.node);
+            conn.execute(
+                "INSERT OR REPLACE INTO nodes
+                 (id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, updated_at, vector)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    record.node.id, record.node.project_id, record.node.name,
+                    record.node.node_type.as_str(), record.node.file_path,
+                    record.node.start_line, record.node.end_line, record.node.summary,
+                    record.node.content_hash, now, chunk_vec_blob,
+                ],
+            )?;
+            conn.execute("DELETE FROM fts_content WHERE node_id = ?1", params![record.node.id])?;
+            conn.execute(
+                "INSERT INTO fts_content (node_id, project_id, name, content, file_path)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    record.node.id, record.node.project_id, record.node.name,
+                    record.content, record.node.file_path,
+                ],
+            )?;
+            conn.execute(
+                "INSERT OR IGNORE INTO edges (id, project_id, source_id, target_id, edge_type, weight)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    record.edge.id, record.edge.project_id,
+                    record.edge.source_id, record.edge.target_id,
+                    record.edge.edge_type.as_str(), record.edge.weight,
+                ],
+            )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO file_hashes (file_path, project_id, content_hash, indexed_at)
+                 VALUES (?1, ?2, ?3, datetime('now'))",
+                params![record.hash_key, record.node.project_id, record.hash_value],
+            )?;
+        }
         Ok(())
     }
 
@@ -473,6 +596,13 @@ mod tests {
         graph.add_node(&node).unwrap();
         assert!(graph.get_neighbors("node-1").unwrap().is_empty());
     }
+}
+
+fn node_vector_blob(node: &Node) -> Vec<u8> {
+    let text = vector_ops::combined_node_text(node);
+    let tokens = vector_ops::tokenize(&text);
+    let vec = vector_ops::build_vector(&tokens);
+    vector_ops::vec_to_blob(&vec)
 }
 
 trait OptionalRow {
