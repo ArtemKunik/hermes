@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "hermes": {
+      "type": "stdio",
+      "command": "D:\\source\\hermes\\tools\\hermes-engine\\target\\release\\hermes.exe",
+      "args": ["--stdio"],
+      "env": {
+        "HERMES_PROJECT_ROOT": "D:\\source\\hermes",
+        "HERMES_PROJECTS": "D:\\source\\Lunapark;D:\\source\\SmartPositionAssistant;D:\\source\\hermes"
+      }
+    }
+  }
+}

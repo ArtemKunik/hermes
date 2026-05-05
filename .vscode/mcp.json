@@ -12,10 +12,11 @@
         },
         "hermes": {
             "type": "stdio",
-            "command": "java",
-            "args": ["-jar", "${workspaceFolder}/hermes-kotlin/build/libs/hermes-engine-0.1.0.jar", "--stdio"],
+            "command": "${workspaceFolder}/tools/hermes-engine/target/release/hermes.exe",
+            "args": ["--stdio"],
             "env": {
-                "HERMES_PROJECT_ROOT": "${workspaceFolder}"
+                "HERMES_PROJECT_ROOT": "${workspaceFolder}",
+                "HERMES_PROJECTS": "D:\\source\\Lunapark;D:\\source\\SmartPositionAssistant;D:\\source\\hermes"
             }
         }
     }

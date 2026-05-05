@@ -111,18 +111,26 @@ fn dispatch(
     params: &Value,
 ) -> Result<Value> {
     match method {
-        "initialize" => Ok(handle_initialize()),
+        "initialize" => Ok(handle_initialize(cache)),
         "tools/list" => Ok(handle_tools_list()),
         "tools/call" => handle_tool_call(cache, connectors, params),
         other => anyhow::bail!("unknown method: {other}"),
     }
 }
 
-fn handle_initialize() -> Value {
+fn handle_initialize(cache: &EngineCache) -> Value {
+    let project_root = cache.default_root.display().to_string();
+    let project_id = cache.default_engine.project_id().to_string();
     json!({
         "protocolVersion": "2024-11-05",
         "capabilities": { "tools": { "listChanged": false } },
-        "serverInfo": { "name": "HermesMind", "version": env!("CARGO_PKG_VERSION") }
+        "serverInfo": {
+            "name": "HermesMind",
+            "version": env!("CARGO_PKG_VERSION"),
+            "project_root": project_root,
+            "project_id": project_id,
+            "hint": "Pass project_root from serverInfo.project_root as the project_root argument to all mind tools when working in this project."
+        }
     })
 }
 
