@@ -15,75 +15,186 @@ use crate::{
     HermesEngine,
 };
 
-// Caches engines keyed by canonicalized project root so a single MCP process
-// can serve multiple repositories transparently.
+// Registry entry: a pre-registered project path (from HERMES_PROJECTS env var).
+// Stored as the canonical absolute path; project_id is its basename.
+struct RegistryEntry {
+    canonical: PathBuf,
+    project_id: String,
+}
+
+// Caches engines keyed by canonicalized project root.
+// A single MCP process can serve any number of repositories via:
+//   1. HERMES_PROJECTS env var — pre-register paths at startup
+//   2. Passing a project name (basename) or full path as project_root per call
 struct EngineCache {
     default_engine: HermesEngine,
     default_root: PathBuf,
     extra: Mutex<HashMap<PathBuf, HermesEngine>>,
+    // name → (canonical path, project_id) for HERMES_PROJECTS-registered projects
+    registry: Vec<RegistryEntry>,
 }
 
 impl EngineCache {
-    fn new(engine: HermesEngine, root: PathBuf) -> Self {
+    fn new(engine: HermesEngine, root: PathBuf, registry: Vec<RegistryEntry>) -> Self {
         Self {
             default_engine: engine,
             default_root: root,
             extra: Mutex::new(HashMap::new()),
+            registry,
         }
     }
 
+    // Resolve a project_root argument to (engine, canonical_path).
+    // Accepts:
+    //   - a project name / basename  ("lonaspark")
+    //   - an absolute path           ("D:/source/lonaspark")
+    // Registry entries (from HERMES_PROJECTS) are checked by name first.
     fn resolve(&self, project_root_arg: Option<&str>) -> Result<(HermesEngine, PathBuf)> {
-        let Some(root_str) = project_root_arg.filter(|s| !s.is_empty()) else {
+        let Some(arg) = project_root_arg.filter(|s| !s.is_empty()) else {
             return Ok((self.default_engine.clone(), self.default_root.clone()));
         };
 
-        let root = PathBuf::from(root_str);
-        let root = root.canonicalize().unwrap_or_else(|_| root.clone());
+        // 1. Registry lookup by name (basename) — lets agents pass "lonaspark" not a full path
+        let effective_root: PathBuf = if let Some(entry) = self.registry_lookup(arg) {
+            eprintln!(
+                "[hermes] resolve: '{}' matched registry entry project_id={}",
+                arg, entry.project_id
+            );
+            entry.canonical.clone()
+        } else {
+            PathBuf::from(arg)
+        };
+
+        // 2. Canonicalize the path (best-effort; keep original if path doesn't exist yet)
+        let canonical = effective_root
+            .canonicalize()
+            .unwrap_or_else(|_| effective_root.clone());
+
+        // 3. Default engine check
         let default_canonical = self
             .default_root
             .canonicalize()
             .unwrap_or_else(|_| self.default_root.clone());
 
-        if root == default_canonical {
+        if canonical == default_canonical {
             eprintln!(
-                "[hermes] resolve: project_root={:?} -> matched default project_id={}",
-                root_str,
+                "[hermes] resolve: '{}' -> default project_id={}",
+                arg,
                 self.default_engine.project_id()
             );
             return Ok((self.default_engine.clone(), self.default_root.clone()));
         }
 
+        // 4. Extra cache lookup
         let mut cache = self.extra.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        if let Some(engine) = cache.get(&root) {
+        if let Some(engine) = cache.get(&canonical) {
             eprintln!(
-                "[hermes] resolve: project_root={:?} -> cached project_id={}",
-                root_str,
+                "[hermes] resolve: '{}' -> cached project_id={}",
+                arg,
                 engine.project_id()
             );
-            return Ok((engine.clone(), root.clone()));
+            return Ok((engine.clone(), canonical));
         }
 
-        let project_id = root
+        // 5. Open a new engine, auto-index the directory
+        let project_id = canonical
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string();
-        let engine = HermesEngine::new(&root.join(".hermes.db"), &project_id)?;
+        let engine = HermesEngine::new(&canonical.join(".hermes.db"), &project_id)?;
         eprintln!(
-            "[hermes] resolve: project_root={:?} -> opened new project_id={}, auto-indexing...",
-            root_str, project_id
+            "[hermes] resolve: '{}' -> new project_id={} at {}, auto-indexing...",
+            arg,
+            project_id,
+            canonical.display()
         );
         let graph = KnowledgeGraph::new(engine.db().clone(), &project_id);
-        match IngestionPipeline::new(&graph).ingest_directory(&root) {
+        match IngestionPipeline::new(&graph).ingest_directory(&canonical) {
             Ok(r) => eprintln!(
                 "[hermes] auto-index {}: {} indexed, {} skipped, {} errors",
                 project_id, r.indexed, r.skipped, r.errors
             ),
             Err(e) => eprintln!("[hermes] auto-index {} failed: {e}", project_id),
         }
-        cache.insert(root.clone(), engine.clone());
-        Ok((engine, root))
+        cache.insert(canonical.clone(), engine.clone());
+        Ok((engine, canonical))
     }
+
+    fn registry_lookup(&self, arg: &str) -> Option<&RegistryEntry> {
+        // Exact project_id (basename) match
+        if let Some(entry) = self.registry.iter().find(|e| e.project_id == arg) {
+            return Some(entry);
+        }
+        // Canonical path match (arg is an absolute path already in the registry)
+        let candidate = PathBuf::from(arg)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(arg));
+        self.registry.iter().find(|e| e.canonical == candidate)
+    }
+
+    fn list_projects(&self) -> Vec<Value> {
+        let mut projects = vec![json!({
+            "project_id": self.default_engine.project_id(),
+            "project_root": self.default_root.display().to_string(),
+            "source": "default"
+        })];
+
+        for entry in &self.registry {
+            if entry.canonical
+                != self
+                    .default_root
+                    .canonicalize()
+                    .unwrap_or_else(|_| self.default_root.clone())
+            {
+                projects.push(json!({
+                    "project_id": entry.project_id,
+                    "project_root": entry.canonical.display().to_string(),
+                    "source": "HERMES_PROJECTS"
+                }));
+            }
+        }
+
+        if let Ok(extra) = self.extra.lock() {
+            let default_canonical = self
+                .default_root
+                .canonicalize()
+                .unwrap_or_else(|_| self.default_root.clone());
+            for (path, engine) in extra.iter() {
+                let is_registry = self.registry.iter().any(|e| &e.canonical == path);
+                if path != &default_canonical && !is_registry {
+                    projects.push(json!({
+                        "project_id": engine.project_id(),
+                        "project_root": path.display().to_string(),
+                        "source": "auto-discovered"
+                    }));
+                }
+            }
+        }
+
+        projects
+    }
+}
+
+// Parse HERMES_PROJECTS env var: semicolon-separated absolute paths.
+// Example: HERMES_PROJECTS=D:\source\lonaspark;D:\source\hermes
+fn parse_project_registry() -> Vec<RegistryEntry> {
+    let Ok(raw) = std::env::var("HERMES_PROJECTS") else {
+        return Vec::new();
+    };
+    raw.split(';')
+        .filter(|s| !s.trim().is_empty())
+        .filter_map(|s| {
+            let path = PathBuf::from(s.trim());
+            let canonical = path.canonicalize().unwrap_or_else(|_| path);
+            let project_id = canonical
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            Some(RegistryEntry { canonical, project_id })
+        })
+        .collect()
 }
 
 fn spawn_auto_reindex(engine: HermesEngine, project_root: PathBuf) {
@@ -119,7 +230,12 @@ fn spawn_auto_reindex(engine: HermesEngine, project_root: PathBuf) {
 
 pub fn run(engine: &HermesEngine, project_root: &Path) -> Result<()> {
     spawn_auto_reindex(engine.clone(), project_root.to_path_buf());
-    let cache = EngineCache::new(engine.clone(), project_root.to_path_buf());
+    let registry = parse_project_registry();
+    if !registry.is_empty() {
+        let names: Vec<&str> = registry.iter().map(|e| e.project_id.as_str()).collect();
+        eprintln!("[hermes] registered projects: {}", names.join(", "));
+    }
+    let cache = EngineCache::new(engine.clone(), project_root.to_path_buf(), registry);
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -158,31 +274,46 @@ pub fn run(engine: &HermesEngine, project_root: &Path) -> Result<()> {
 
 fn dispatch(cache: &EngineCache, method: &str, params: &Value) -> Result<Value> {
     match method {
-        "initialize" => Ok(handle_initialize()),
+        "initialize" => Ok(handle_initialize(cache)),
         "tools/list" => Ok(handle_tools_list()),
         "tools/call" => handle_tool_call(cache, params),
         other => anyhow::bail!("unknown method: {other}"),
     }
 }
 
-fn handle_initialize() -> Value {
+fn handle_initialize(cache: &EngineCache) -> Value {
     json!({
         "protocolVersion": "2024-11-05",
         "capabilities": { "tools": { "listChanged": false } },
-        "serverInfo": { "name": "Hermes", "version": env!("CARGO_PKG_VERSION") }
+        "serverInfo": {
+            "name": "Hermes",
+            "version": env!("CARGO_PKG_VERSION"),
+            "project_root": cache.default_root.display().to_string(),
+            "project_id":   cache.default_engine.project_id(),
+            "projects":     cache.list_projects(),
+            "hint": "Use project_id (short name) or full project_root path as the project_root argument. Call hermes_list_projects to see all available projects."
+        }
     })
 }
 
 fn project_root_schema() -> Value {
     json!({
         "type": "string",
-        "description": "Absolute path to the project root. Defaults to the server's startup directory when omitted."
+        "description": "Project name (e.g. 'lonaspark') or absolute path. Use hermes_list_projects to see available projects. Wrong value → wrong repo's results."
     })
 }
 
 fn handle_tools_list() -> Value {
     json!({
         "tools": [
+            {
+                "name": "hermes_list_projects",
+                "description": "List all projects known to this hermes server (default + HERMES_PROJECTS registry + previously accessed). Use the returned project_root values for all other hermes tools.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            },
             {
                 "name": "hermes_search",
                 "description": "Search the codebase knowledge graph. Returns pointers (not full content). Records token savings in accounting.",
@@ -279,10 +410,17 @@ fn handle_tool_call(cache: &EngineCache, params: &Value) -> Result<Value> {
     let name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
 
+    // hermes_list_projects needs no project_root
+    if name == "hermes_list_projects" {
+        let text = tool_list_projects(cache)?;
+        return Ok(json!({ "content": [{ "type": "text", "text": text }] }));
+    }
+
     let project_root_arg = args["project_root"].as_str().unwrap_or("");
     anyhow::ensure!(
         !project_root_arg.is_empty(),
-        "project_root is required — pass the absolute path to the repository root"
+        "project_root is required — pass a project name (e.g. 'lonaspark') or absolute path. \
+         Call hermes_list_projects to see available projects."
     );
     let (engine, project_root) = cache.resolve(Some(project_root_arg))?;
 
@@ -297,7 +435,7 @@ fn handle_tool_call(cache: &EngineCache, params: &Value) -> Result<Value> {
         "hermes_search" => {
             let query = args["query"].as_str().unwrap_or("");
             anyhow::ensure!(!query.is_empty(), "hermes_search requires 'query'");
-            tool_search(&engine, query, &project_root)?
+            tool_search(&engine, query, &project_root, project_root_arg)?
         }
         "hermes_fetch" => {
             let node_id = args["node_id"].as_str().unwrap_or("");
@@ -331,7 +469,14 @@ fn handle_tool_call(cache: &EngineCache, params: &Value) -> Result<Value> {
     Ok(json!({ "content": [{ "type": "text", "text": text }] }))
 }
 
-fn tool_search(engine: &HermesEngine, query: &str, project_root: &Path) -> Result<String> {
+fn tool_list_projects(cache: &EngineCache) -> Result<String> {
+    Ok(serde_json::to_string_pretty(&json!({
+        "projects": cache.list_projects(),
+        "usage": "Pass project_id or project_root to any hermes tool to target that project."
+    }))?)
+}
+
+fn tool_search(engine: &HermesEngine, query: &str, project_root: &Path, requested: &str) -> Result<String> {
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let search = SearchEngine::new(&graph, engine.search_cache());
     let resp = search.search(query, 10, &SearchMode::Smart)?;
@@ -349,6 +494,31 @@ fn tool_search(engine: &HermesEngine, query: &str, project_root: &Path) -> Resul
     let mut out = serde_json::to_value(&resp)?;
     out["project_id"] = json!(engine.project_id());
     out["project_root"] = json!(project_root.display().to_string());
+    // Warn when the requested arg was a full path that resolved to a different canonical location.
+    // (Name-based lookups intentionally resolve to a different path and are not warned.)
+    let resolved_canonical = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.to_path_buf());
+    let requested_as_path = PathBuf::from(requested);
+    let looks_like_path = requested_as_path.is_absolute()
+        || requested.contains('/')
+        || requested.contains('\\');
+    if looks_like_path {
+        let requested_canonical = requested_as_path
+            .canonicalize()
+            .unwrap_or_else(|_| requested_as_path.clone());
+        if requested_canonical != resolved_canonical {
+            let warning = format!(
+                "Searched project '{}' at '{}' but you passed '{}'. \
+                 Call hermes_list_projects to see correct project_root values.",
+                engine.project_id(),
+                project_root.display(),
+                requested
+            );
+            out["WARNING"] = json!(warning);
+            eprintln!("[hermes] WARNING: {}", warning);
+        }
+    }
     Ok(serde_json::to_string_pretty(&out)?)
 }
 
