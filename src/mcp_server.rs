@@ -272,6 +272,155 @@ pub fn run(engine: &HermesEngine, project_root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Serve the MCP JSON-RPC API over plain HTTP on the given port.
+/// Accepts POST /api/mcp with a JSON-RPC 2.0 body and returns a JSON-RPC 2.0 response.
+pub fn run_http(engine: &HermesEngine, project_root: &Path, port: u16) -> Result<()> {
+    use std::sync::Arc;
+    spawn_auto_reindex(engine.clone(), project_root.to_path_buf());
+    let registry = parse_project_registry();
+    if !registry.is_empty() {
+        let names: Vec<&str> = registry.iter().map(|e| e.project_id.as_str()).collect();
+        eprintln!("[hermes] registered projects: {}", names.join(", "));
+    }
+    let cache = Arc::new(EngineCache::new(
+        engine.clone(),
+        project_root.to_path_buf(),
+        registry,
+    ));
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move {
+        // Bind to all interfaces (IPv4/IPv6) to handle 'localhost' resolving to either.
+        let addr = format!("[::]:{port}");
+        let listener = match tokio::net::TcpListener::bind(&addr).await {
+            Ok(l) => {
+                eprintln!("[hermes] HTTP MCP listening on http://localhost:{port}/api/mcp (dual-stack)");
+                l
+            }
+            Err(_) => {
+                // Fallback to IPv4 only if IPv6 is disabled/unsupported
+                let addr4 = format!("0.0.0.0:{port}");
+                let l = tokio::net::TcpListener::bind(&addr4).await?;
+                eprintln!("[hermes] HTTP MCP listening on http://localhost:{port}/api/mcp (IPv4 only)");
+                l
+            }
+        };
+        loop {
+            let (stream, _peer) = listener.accept().await?;
+            let cache = Arc::clone(&cache);
+            tokio::spawn(async move {
+                if let Err(e) = handle_http_conn(stream, cache).await {
+                    eprintln!("[hermes] http conn error: {e}");
+                }
+            });
+        }
+        #[allow(unreachable_code)]
+        Ok::<(), anyhow::Error>(())
+    })?;
+    Ok(())
+}
+
+async fn handle_http_conn(
+    stream: tokio::net::TcpStream,
+    cache: std::sync::Arc<EngineCache>,
+) -> Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = stream;
+
+    // Read until we have the full headers (\r\n\r\n)
+    let mut raw = Vec::with_capacity(4096);
+    let mut tmp = [0u8; 4096];
+    let header_end = loop {
+        let n = stream.read(&mut tmp).await?;
+        if n == 0 {
+            return Ok(()); // connection closed
+        }
+        raw.extend_from_slice(&tmp[..n]);
+        if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+            break pos;
+        }
+        if raw.len() > 1_048_576 {
+            anyhow::bail!("headers too large");
+        }
+    };
+
+    let headers_text = std::str::from_utf8(&raw[..header_end]).unwrap_or("");
+    let first_line = headers_text.lines().next().unwrap_or("");
+
+    // Handle CORS preflight
+    if first_line.starts_with("OPTIONS") {
+        let resp = b"HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n\r\n";
+        stream.write_all(resp).await?;
+        return Ok(());
+    }
+
+    // Parse Content-Length
+    let content_length: usize = headers_text
+        .lines()
+        .find(|l| l.to_lowercase().starts_with("content-length:"))
+        .and_then(|l| l.splitn(2, ':').nth(1))
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0);
+
+    // Read body (may have started after headers)
+    let body_start = header_end + 4;
+    let mut body = raw[body_start..].to_vec();
+    while body.len() < content_length {
+        let n = stream.read(&mut tmp).await?;
+        if n == 0 {
+            break;
+        }
+        body.extend_from_slice(&tmp[..n]);
+    }
+    body.truncate(content_length);
+
+    let msg: Value = serde_json::from_slice(&body)
+        .map_err(|e| anyhow::anyhow!("JSON parse error: {e}"))?;
+    let id = msg.get("id").cloned().unwrap_or(Value::Null);
+    let method = msg["method"].as_str().unwrap_or("");
+    let params = msg.get("params").cloned().unwrap_or(Value::Null);
+
+    // Notifications get an empty 204
+    if method.starts_with("notifications/") {
+        stream
+            .write_all(b"HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\n\r\n")
+            .await?;
+        return Ok(());
+    }
+
+    // Run dispatch in a blocking thread — the neural embedding client uses
+    // reqwest::blocking which must not be called from within an async context.
+    let cache_clone = cache.clone();
+    let method_owned = method.to_string();
+    let params_owned = params.clone();
+    let dispatch_result = tokio::task::spawn_blocking(move || {
+        dispatch(&cache_clone, &method_owned, &params_owned)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("spawn_blocking panic: {e}"))?;
+
+    let response_body = match dispatch_result {
+        Ok(payload) => serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": payload,
+        }))?,
+        Err(e) => serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {"code": -32603, "message": e.to_string()},
+        }))?,
+    };
+
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
+        response_body.len()
+    );
+    stream.write_all(header.as_bytes()).await?;
+    stream.write_all(&response_body).await?;
+    Ok(())
+}
+
 fn dispatch(cache: &EngineCache, method: &str, params: &Value) -> Result<Value> {
     match method {
         "initialize" => Ok(handle_initialize(cache)),
@@ -323,7 +472,7 @@ fn handle_tools_list() -> Value {
                         "query": { "type": "string", "description": "Natural-language or keyword search query" },
                         "project_root": project_root_schema()
                     },
-                    "required": ["query", "project_root"]
+                    "required": ["query"]
                 }
             },
             {
@@ -335,7 +484,7 @@ fn handle_tools_list() -> Value {
                         "node_id": { "type": "string", "description": "Node ID from a previous search result" },
                         "project_root": project_root_schema()
                     },
-                    "required": ["node_id", "project_root"]
+                    "required": ["node_id"]
                 }
             },
             {
@@ -344,7 +493,7 @@ fn handle_tools_list() -> Value {
                 "inputSchema": {
                     "type": "object",
                     "properties": { "project_root": project_root_schema() },
-                    "required": ["project_root"]
+                    "required": []
                 }
             },
             {
@@ -353,7 +502,7 @@ fn handle_tools_list() -> Value {
                 "inputSchema": {
                     "type": "object",
                     "properties": { "project_root": project_root_schema() },
-                    "required": ["project_root"]
+                    "required": []
                 }
             },
             {
@@ -366,7 +515,7 @@ fn handle_tools_list() -> Value {
                         "content":   { "type": "string", "description": "The fact to record" },
                         "project_root": project_root_schema()
                     },
-                    "required": ["fact_type", "content", "project_root"]
+                    "required": ["fact_type", "content"]
                 }
             },
             {
@@ -378,7 +527,7 @@ fn handle_tools_list() -> Value {
                         "fact_type": { "type": "string", "description": "Optional filter type (omit for all)" },
                         "project_root": project_root_schema()
                     },
-                    "required": ["project_root"]
+                    "required": []
                 }
             },
             {
@@ -390,7 +539,7 @@ fn handle_tools_list() -> Value {
                         "env_var": { "type": "string", "description": "The environment variable name to validate (e.g. DATABASE_URL)" },
                         "project_root": project_root_schema()
                     },
-                    "required": ["env_var", "project_root"]
+                    "required": ["env_var"]
                 }
             },
             {
@@ -399,7 +548,15 @@ fn handle_tools_list() -> Value {
                 "inputSchema": {
                     "type": "object",
                     "properties": { "project_root": project_root_schema() },
-                    "required": ["project_root"]
+                    "required": []
+                }
+            },
+            {
+                "name": "hermes_mcp_status",
+                "description": "Return current server status: indexing state, total node/file counts, and capability flags. Requires no arguments.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
                 }
             }
         ]
@@ -410,19 +567,23 @@ fn handle_tool_call(cache: &EngineCache, params: &Value) -> Result<Value> {
     let name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
 
-    // hermes_list_projects needs no project_root
+    // 1. Special cases that never need project_root
     if name == "hermes_list_projects" {
         let text = tool_list_projects(cache)?;
+        return Ok(json!({ "content": [{"type": "text", "text": text }] }));
+    }
+    if name == "hermes_mcp_status" {
+        let text = tool_mcp_status(&cache.default_engine)?;
         return Ok(json!({ "content": [{ "type": "text", "text": text }] }));
     }
 
+    // 2. Resolve engine (use provided project_root or fallback to default)
     let project_root_arg = args["project_root"].as_str().unwrap_or("");
-    anyhow::ensure!(
-        !project_root_arg.is_empty(),
-        "project_root is required — pass a project name (e.g. 'lonaspark') or absolute path. \
-         Call hermes_list_projects to see available projects."
-    );
-    let (engine, project_root) = cache.resolve(Some(project_root_arg))?;
+    let (engine, project_root) = if project_root_arg.is_empty() {
+        (cache.default_engine.clone(), cache.default_root.clone())
+    } else {
+        cache.resolve(Some(project_root_arg))?
+    };
 
     eprintln!(
         "[hermes] tool={} project_id={} project_root={}",
@@ -442,7 +603,10 @@ fn handle_tool_call(cache: &EngineCache, params: &Value) -> Result<Value> {
             anyhow::ensure!(!node_id.is_empty(), "hermes_fetch requires 'node_id'");
             tool_fetch(&engine, node_id, &project_root)?
         }
-        "hermes_index" => tool_index(&engine, &project_root)?,
+        "hermes_index" => {
+            let force = args["force"].as_bool().unwrap_or(false);
+            tool_index(&engine, &project_root, force)?
+        }
         "hermes_stats" => tool_stats(&engine)?,
         "hermes_fact" => {
             let ft = args["fact_type"].as_str().unwrap_or("");
@@ -540,10 +704,14 @@ fn tool_fetch(engine: &HermesEngine, node_id: &str, project_root: &Path) -> Resu
     Ok(serde_json::to_string_pretty(&out)?)
 }
 
-fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> {
+fn tool_index(engine: &HermesEngine, project_root: &Path, force: bool) -> Result<String> {
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let pipeline = IngestionPipeline::new(&graph);
-    let report = pipeline.ingest_directory(project_root)?;
+    let report = if force {
+        pipeline.ingest_directory_force(project_root)?
+    } else {
+        pipeline.ingest_directory(project_root)?
+    };
     engine.invalidate_search_cache();
     Ok(serde_json::to_string_pretty(&json!({
         "project_id": engine.project_id(),
@@ -579,6 +747,49 @@ fn tool_stats(engine: &HermesEngine) -> Result<String> {
             "tokens_saved":             cumulative.cumulative_savings_tokens,
             "savings_pct":              format!("{:.1}%", cumulative.cumulative_savings_pct),
         },
+    }))?)
+}
+
+fn tool_mcp_status(engine: &HermesEngine) -> Result<String> {
+    let db = engine.db().lock().map_err(|e| anyhow::anyhow!("db lock: {e}"))?;
+    let total_nodes: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM nodes WHERE project_id = ?1",
+            rusqlite::params![engine.project_id()],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let total_files: i64 = db
+        .query_row(
+            "SELECT COUNT(DISTINCT file_path) FROM nodes WHERE project_id = ?1 AND file_path IS NOT NULL",
+            rusqlite::params![engine.project_id()],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let has_vectors: bool = db
+        .query_row(
+            "SELECT COUNT(*) FROM nodes WHERE project_id = ?1 AND vector IS NOT NULL LIMIT 1",
+            rusqlite::params![engine.project_id()],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n > 0)
+        .unwrap_or(false);
+    let embedding_mode = if crate::neural_embed::is_neural_active() {
+        "neural"
+    } else if has_vectors {
+        "semantic"
+    } else {
+        "fts"
+    };
+    Ok(serde_json::to_string_pretty(&json!({
+        "indexing": {
+            "in_progress": false,
+            "total_nodes": total_nodes,
+            "total_files": total_files
+        },
+        "capabilities": {
+            "embedding_mode": embedding_mode
+        }
     }))?)
 }
 

@@ -95,6 +95,38 @@ $env:HERMES_SKIP_HOOK_REINDEX = "1"
 HERMES_PROJECT_ROOT=/path/to/your/project ./target/release/Hermes --stdio
 ```
 
+### Multi-Repo Local MCP Setup
+
+When several repos are open at once, run one Hermes MCP server per source base and give each server its own port. The client-side server name remains `hermes`; the per-repo `.agent/mcp_servers.local.json` file chooses the port.
+
+Current local assignment:
+
+| Repo | Hermes MCP URL |
+| --- | --- |
+| `D:\source\SmartPositionAssistant` | `http://localhost:38080/api/mcp` |
+| `D:\source\Lunapark` | `http://localhost:38081/api/mcp` |
+| `D:\source\hermes` | `http://localhost:38082/api/mcp` |
+
+For this repo, `.agent/mcp_servers.local.json` should contain:
+
+```json
+[
+  {
+    "name": "hermes",
+    "url": "http://localhost:38082/api/mcp"
+  }
+]
+```
+
+After starting the server for this repo, verify it before relying on pointers:
+
+```powershell
+$payload = @{ jsonrpc = '2.0'; id = 1; method = 'tools/call'; params = @{ name = 'hermes_mcp_status'; arguments = @{} } } | ConvertTo-Json -Depth 6
+(Invoke-RestMethod -Uri 'http://localhost:38082/api/mcp' -Method Post -ContentType 'application/json' -Body $payload).result.content[0].text
+```
+
+The status should identify `hermes` or `D:\source\hermes`. If it identifies another project, stop that MCP server and restart it with this repo as `HERMES_PROJECT_ROOT`.
+
 ### Environment Variables
 
 | Variable | Default | Description |

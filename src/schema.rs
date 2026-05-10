@@ -7,27 +7,30 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     add_accounting_session_id(conn);
     add_name_lower_index(conn);
     add_config_registry_table(conn)?;
+    ensure_config_registry_project_id(conn);
     add_vector_column(conn);
     Ok(())
 }
 
 /// Idempotent: creates the config_registry table for env var tracking.
-///
-/// `is_defined` → var was seen in a definition context (.env, YAML, Markdown table).
-/// `is_used`    → var was accessed in code (Rust/JS/Python/Shell pattern).
-/// Scoped by `project_id` so multiple projects can share one DB file.
 fn add_config_registry_table(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS config_registry (
-            project_id  TEXT NOT NULL,
             key         TEXT NOT NULL,
             is_defined  INTEGER NOT NULL DEFAULT 0,
             is_used     INTEGER NOT NULL DEFAULT 0,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (project_id, key)
+            PRIMARY KEY (key)
         );",
     )?;
     Ok(())
+}
+
+/// Adds project_id to config_registry if missing (older DBs).
+fn ensure_config_registry_project_id(conn: &Connection) {
+    let _ = conn.execute_batch(
+        "ALTER TABLE config_registry ADD COLUMN project_id TEXT NOT NULL DEFAULT 'unknown';",
+    );
 }
 
 fn add_name_lower_index(conn: &Connection) {

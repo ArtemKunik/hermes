@@ -12,7 +12,7 @@
         },
         "hermes": {
             "type": "stdio",
-            "command": "${workspaceFolder}/tools/hermes-engine/target/release/hermes.exe",
+            "command": "${workspaceFolder}/target/release/Hermes.exe",
             "args": ["--stdio"],
             "env": {
                 "HERMES_PROJECT_ROOT": "${workspaceFolder}",

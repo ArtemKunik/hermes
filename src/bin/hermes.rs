@@ -30,12 +30,20 @@ struct Cli {
     /// Run as MCP JSON-RPC 2.0 stdio server
     #[arg(long)]
     stdio: bool,
+
+    /// Run as MCP JSON-RPC 2.0 HTTP server on the given port (e.g. --http 38081)
+    #[arg(long)]
+    http: Option<u16>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
     /// Re-index the project (run when files change)
-    Index,
+    Index {
+        /// Force a full re-index, ignoring content hashes
+        #[arg(long)]
+        force: bool,
+    },
 
     /// <query> - Search codebase; returns pointers (no full content)
     Search { query: String },
@@ -69,8 +77,12 @@ fn main() -> Result<()> {
         return mcp_server::run(&engine, &project_root);
     }
 
+    if let Some(port) = cli.http {
+        return mcp_server::run_http(&engine, &project_root, port);
+    }
+
     match cli.command.unwrap() {
-        Commands::Index => cmd_index(&engine, &project_root),
+        Commands::Index { force } => cmd_index(&engine, &project_root, force),
         Commands::Search { query } => cmd_search(&engine, &query),
         Commands::Fetch { node_id } => cmd_fetch(&engine, &node_id),
         Commands::Fact { fact_type, content } => cmd_add_fact(&engine, &fact_type, &content),
@@ -101,10 +113,14 @@ fn open_engine() -> Result<(HermesEngine, PathBuf)> {
     Ok((engine, project_root))
 }
 
-fn cmd_index(engine: &HermesEngine, project_root: &std::path::Path) -> Result<()> {
+fn cmd_index(engine: &HermesEngine, project_root: &std::path::Path, force: bool) -> Result<()> {
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
     let pipeline = IngestionPipeline::new(&graph);
-    let report = pipeline.ingest_directory(project_root)?;
+    let report = if force {
+        pipeline.ingest_directory_force(project_root)?
+    } else {
+        pipeline.ingest_directory(project_root)?
+    };
     engine.invalidate_search_cache();
     let output = serde_json::json!({
         "total_files":  report.total_files,

@@ -673,8 +673,7 @@ mod tests {
 
 fn node_vector_blob(node: &Node) -> Vec<u8> {
     let text = vector_ops::combined_node_text(node);
-    let tokens = vector_ops::tokenize(&text);
-    let vec = vector_ops::build_vector(&tokens);
+    let vec = crate::neural_embed::embed(&text);
     vector_ops::vec_to_blob(&vec)
 }
 

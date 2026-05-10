@@ -1,6 +1,6 @@
 use crate::graph::KnowledgeGraph;
 use crate::search::{SearchResult, SearchTier};
-use crate::vector_ops::{build_vector, tokenize};
+use crate::vector_ops::tokenize;
 use anyhow::Result;
 use std::collections::HashSet;
 
@@ -12,12 +12,17 @@ pub fn vector_search(
     query: &str,
     candidate_ids: Option<&HashSet<String>>,
 ) -> Result<Vec<SearchResult>> {
-    let query_tokens = tokenize(query);
-    if query_tokens.is_empty() {
+    // Use neural embeddings when available, local token-hash otherwise
+    let query_vec = crate::neural_embed::embed(query);
+    if query_vec.is_empty() {
+        let tokens = tokenize(query);
+        if tokens.is_empty() {
+            return Ok(Vec::new());
+        }
+    }
+    if query_vec.is_empty() {
         return Ok(Vec::new());
     }
-
-    let query_vec = build_vector(&query_tokens);
     let node_vectors = match candidate_ids {
         Some(ids) if !ids.is_empty() => {
             let mut ordered_ids: Vec<String> = ids.iter().cloned().collect();

@@ -195,6 +195,11 @@ fn handle_tools_list() -> Value {
                 "name": "hermes_check_consistency",
                 "description": "Scan config_registry for environment variables that are used in code but not defined (unknown) or defined but never referenced (unused). Run after hermes_index.",
                 "inputSchema": { "type": "object", "properties": {} }
+            },
+            {
+                "name": "hermes_mcp_status",
+                "description": "Return current indexing status and capability flags for this Hermes instance.",
+                "inputSchema": { "type": "object", "properties": {} }
             }
         ]
     })
@@ -233,6 +238,7 @@ fn handle_tool_call(engine: &HermesEngine, project_root: &Path, params: &Value) 
             tool_validate_env(engine, var)?
         }
         "hermes_check_consistency" => tool_check_consistency(engine)?,
+        "hermes_mcp_status" => tool_mcp_status(engine)?,
         other => anyhow::bail!("unknown tool: {other}"),
     };
 
@@ -319,6 +325,35 @@ fn tool_list_facts(engine: &HermesEngine, filter: Option<&str>) -> Result<String
     let store = TemporalStore::new(engine.db().clone(), engine.project_id());
     let facts = store.get_active_facts(filter.map(FactType::parse_str).as_ref())?;
     Ok(serde_json::to_string_pretty(&facts)?)
+}
+
+fn tool_mcp_status(engine: &HermesEngine) -> Result<String> {
+    let total_nodes: i64 = {
+        let conn = engine.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM nodes WHERE project_id = ?1",
+            [engine.project_id()],
+            |row| row.get(0),
+        ).unwrap_or(0)
+    };
+    let total_files: i64 = {
+        let conn = engine.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        conn.query_row(
+            "SELECT COUNT(*) FROM nodes WHERE project_id = ?1 AND node_type = 'file'",
+            [engine.project_id()],
+            |row| row.get(0),
+        ).unwrap_or(0)
+    };
+    Ok(serde_json::to_string_pretty(&json!({
+        "indexing": {
+            "in_progress": false,
+            "total_nodes": total_nodes,
+            "total_files": total_files,
+        },
+        "capabilities": {
+            "embedding_mode": "smart",
+        }
+    }))?)
 }
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
   "mcpServers": {
     "hermes": {
       "type": "stdio",
-      "command": "D:\\source\\hermes\\tools\\hermes-engine\\target\\release\\hermes.exe",
+      "command": "D:\\source\\hermes\\target\\release\\Hermes.exe",
       "args": ["--stdio"],
       "env": {
         "HERMES_PROJECT_ROOT": "D:\\source\\hermes",

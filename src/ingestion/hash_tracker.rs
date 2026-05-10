@@ -30,6 +30,15 @@ impl<'a> HashTracker<'a> {
         Ok(hashes)
     }
 
+    pub fn clear_all_hashes(&self) -> Result<()> {
+        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        conn.execute(
+            "DELETE FROM file_hashes WHERE project_id = ?1",
+            params![self.project_id],
+        )?;
+        Ok(())
+    }
+
     pub fn store_hash(&self, file_path: &str, hash: &str) -> Result<()> {
         let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         conn.execute(

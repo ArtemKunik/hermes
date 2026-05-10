@@ -34,6 +34,17 @@ impl<'a> IngestionPipeline<'a> {
     }
 
     pub fn ingest_directory(&self, dir_path: &Path) -> Result<IngestionReport> {
+        self.ingest_directory_impl(dir_path, false)
+    }
+
+    pub fn ingest_directory_force(&self, dir_path: &Path) -> Result<IngestionReport> {
+        self.ingest_directory_impl(dir_path, true)
+    }
+
+    fn ingest_directory_impl(&self, dir_path: &Path, force: bool) -> Result<IngestionReport> {
+        if force {
+            self.hash_tracker.clear_all_hashes()?;
+        }
         let files = crawler::crawl_directory(dir_path)?;
         let loaded_files = Self::load_files(&files)?;
         let stored_hashes = self.hash_tracker.load_all_hashes()?;
