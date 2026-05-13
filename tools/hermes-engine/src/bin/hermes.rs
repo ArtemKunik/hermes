@@ -1,7 +1,7 @@
 ﻿// tools/hermes-engine/src/bin/hermes.rs
 // CLI entry point: index | search | fetch | fact | facts | stats | --stdio (MCP)
 use anyhow::{bail, Result};
-use hermes_engine::{
+use hermes_cli_engine::{
     accounting::{parse_since_duration, Accountant},
     graph::KnowledgeGraph,
     ingestion::IngestionPipeline,

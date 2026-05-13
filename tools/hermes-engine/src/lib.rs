@@ -13,13 +13,13 @@ pub mod search;
 pub mod temporal;
 
 use anyhow::Result;
+use chrono::Local;
 use crate::pointer::PointerResponse;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use uuid::Uuid;
 
 /// In-process search result cache entry: (response, time_inserted).
 pub type SearchCacheMap = HashMap<String, (PointerResponse, Instant)>;
@@ -44,7 +44,7 @@ impl HermesEngine {
         Ok(Self {
             db: Arc::new(Mutex::new(conn)),
             project_id: project_id.to_string(),
-            session_id: Uuid::new_v4().to_string(),
+            session_id: today_session_id(),
             search_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -55,7 +55,7 @@ impl HermesEngine {
         Ok(Self {
             db: Arc::new(Mutex::new(conn)),
             project_id: project_id.to_string(),
-            session_id: Uuid::new_v4().to_string(),
+            session_id: today_session_id(),
             search_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -83,6 +83,14 @@ impl HermesEngine {
             cache.clear();
         }
     }
+}
+
+/// Returns today's local date as a session identifier (e.g. "2026-05-13").
+/// Using the date instead of a fresh UUID means a session persists across
+/// VS Code / MCP server restarts within the same calendar day and resets
+/// naturally at midnight.
+fn today_session_id() -> String {
+    Local::now().format("%Y-%m-%d").to_string()
 }
 
 #[cfg(test)]

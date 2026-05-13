@@ -11,7 +11,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use crate::{
     accounting::Accountant,
@@ -283,18 +283,9 @@ fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> {
 }
 
 fn tool_stats(engine: &HermesEngine) -> Result<String> {
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
-    // Session = today's stats (midnight UTC → now). Simple and stable across
-    // process restarts: any query recorded since 00:00 UTC counts.
-    let since_midnight = Duration::from_secs(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            % 86400,
-    );
-    let session    = acct.get_stats_since(Some(since_midnight))?;
-    let cumulative = acct.get_cumulative_stats()?;
+     let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+     let session    = acct.get_session_stats()?;
+     let cumulative = acct.get_cumulative_stats()?;
     Ok(serde_json::to_string_pretty(&json!({
         "session": {
             "total_queries":            session.total_queries,

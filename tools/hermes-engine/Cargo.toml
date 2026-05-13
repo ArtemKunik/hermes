@@ -1,5 +1,5 @@
 ﻿[package]
-name = "hermes-engine"
+name = "hermes-cli-engine"
 version = "0.1.0"
 edition = "2021"
 description = "Rust-native knowledge engine with pointer-based RAG, hybrid search, and temporal truth"

@@ -204,26 +204,26 @@ fn tool_stats(engine: &HermesEngine) -> Result<String> {
         engine.project_id(),
         engine.session_id(),
     );
-    let today = acct.get_today_stats()?;
-    let cumulative = acct.get_cumulative_stats()?;
-    Ok(serde_json::to_string_pretty(&json!({
-        "today": {
-            "total_queries":            today.total_queries,
-            "pointer_tokens_used":      today.total_pointer_tokens,
-            "fetched_tokens_used":      today.total_fetched_tokens,
-            "traditional_rag_estimate": today.total_traditional_estimate,
-            "tokens_saved":             today.cumulative_savings_tokens,
-            "savings_pct":              format!("{:.1}%", today.cumulative_savings_pct),
-        },
-        "cumulative": {
-            "total_queries":            cumulative.total_queries,
-            "pointer_tokens_used":      cumulative.total_pointer_tokens,
-            "fetched_tokens_used":      cumulative.total_fetched_tokens,
-            "traditional_rag_estimate": cumulative.total_traditional_estimate,
-            "tokens_saved":             cumulative.cumulative_savings_tokens,
-            "savings_pct":              format!("{:.1}%", cumulative.cumulative_savings_pct),
-        },
-    }))?)
+let session = acct.get_session_stats()?;
+     let cumulative = acct.get_cumulative_stats()?;
+     Ok(serde_json::to_string_pretty(&json!({
+         "session": {
+             "total_queries":            session.total_queries,
+             "pointer_tokens_used":      session.total_pointer_tokens,
+             "fetched_tokens_used":      session.total_fetched_tokens,
+             "traditional_rag_estimate": session.total_traditional_estimate,
+             "tokens_saved":             session.cumulative_savings_tokens,
+             "savings_pct":              format!("{:.1}%", session.cumulative_savings_pct),
+         },
+         "cumulative": {
+             "total_queries":            cumulative.total_queries,
+             "pointer_tokens_used":      cumulative.total_pointer_tokens,
+             "fetched_tokens_used":      cumulative.total_fetched_tokens,
+             "traditional_rag_estimate": cumulative.total_traditional_estimate,
+             "tokens_saved":             cumulative.cumulative_savings_tokens,
+             "savings_pct":              format!("{:.1}%", cumulative.cumulative_savings_pct),
+         },
+     }))?)
 }
 
 fn tool_mcp_status(engine: &HermesEngine) -> Result<String> {
@@ -329,9 +329,9 @@ mod tests {
         let engine = HermesEngine::in_memory("test-tool-stats").unwrap();
         let result = tool_stats(&engine).unwrap();
         let parsed: Value = serde_json::from_str(&result).unwrap();
-        assert!(parsed["today"]["total_queries"].is_number());
-        assert!(parsed["cumulative"]["total_queries"].is_number());
-        assert!(parsed["today"]["savings_pct"].is_string());
+assert!(parsed["session"]["total_queries"].is_number());
+         assert!(parsed["cumulative"]["total_queries"].is_number());
+         assert!(parsed["session"]["savings_pct"].is_string());
     }
 
     #[test]
