@@ -1,14 +1,14 @@
 use anyhow::Result;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     conn.execute_batch(CREATE_TABLES_SQL)?;
     create_fts_table(conn)?;
-    add_accounting_session_id(conn);
-    add_name_lower_index(conn);
+    add_accounting_session_id(conn)?;
+    add_name_lower_index(conn)?;
     add_config_registry_table(conn)?;
-    ensure_config_registry_project_id(conn);
-    add_vector_column(conn);
+    ensure_config_registry_project_id(conn)?;
+    add_vector_column(conn)?;
     Ok(())
 }
 
@@ -26,25 +26,43 @@ fn add_config_registry_table(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let count: i64 = conn.query_row(
+        &format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = ?1"),
+        params![column],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
 /// Adds project_id to config_registry if missing (older DBs).
-fn ensure_config_registry_project_id(conn: &Connection) {
-    let _ = conn.execute_batch(
-        "ALTER TABLE config_registry ADD COLUMN project_id TEXT NOT NULL DEFAULT 'unknown';",
-    );
+fn ensure_config_registry_project_id(conn: &Connection) -> Result<()> {
+    if !column_exists(conn, "config_registry", "project_id")? {
+        conn.execute_batch(
+            "ALTER TABLE config_registry ADD COLUMN project_id TEXT NOT NULL DEFAULT 'unknown';",
+        )?;
+    }
+    Ok(())
 }
 
-fn add_name_lower_index(conn: &Connection) {
-    let _ = conn
-        .execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_name_lower ON nodes (LOWER(name));");
+fn add_name_lower_index(conn: &Connection) -> Result<()> {
+    conn
+        .execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_name_lower ON nodes (LOWER(name));")?;
+    Ok(())
 }
 
-fn add_accounting_session_id(conn: &Connection) {
-    let _ = conn
-        .execute_batch("ALTER TABLE accounting ADD COLUMN session_id TEXT NOT NULL DEFAULT '';");
+fn add_accounting_session_id(conn: &Connection) -> Result<()> {
+    if !column_exists(conn, "accounting", "session_id")? {
+        conn.execute_batch("ALTER TABLE accounting ADD COLUMN session_id TEXT NOT NULL DEFAULT '';")?;
+    }
+    Ok(())
 }
 
-fn add_vector_column(conn: &Connection) {
-    let _ = conn.execute_batch("ALTER TABLE nodes ADD COLUMN vector BLOB;");
+fn add_vector_column(conn: &Connection) -> Result<()> {
+    if !column_exists(conn, "nodes", "vector")? {
+        conn.execute_batch("ALTER TABLE nodes ADD COLUMN vector BLOB;")?;
+    }
+    Ok(())
 }
 
 fn create_fts_table(conn: &Connection) -> Result<()> {

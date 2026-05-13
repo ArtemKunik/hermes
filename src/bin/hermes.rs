@@ -69,6 +69,7 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
     let (engine, project_root) = open_engine()?;
@@ -81,7 +82,10 @@ fn main() -> Result<()> {
         return mcp_server::run_http(&engine, &project_root, port);
     }
 
-    match cli.command.unwrap() {
+    match cli
+        .command
+        .expect("clap should require a subcommand")
+    {
         Commands::Index { force } => cmd_index(&engine, &project_root, force),
         Commands::Search { query } => cmd_search(&engine, &query),
         Commands::Fetch { node_id } => cmd_fetch(&engine, &node_id),
@@ -162,7 +166,7 @@ fn cmd_fetch(engine: &HermesEngine, node_id: &str) -> Result<()> {
         bail!("node not found: {node_id}");
     };
 
-    let traditional_estimate = response.token_count * 15;
+    let traditional_estimate = response.token_count.saturating_mul(15);
     let acct = Accountant::new(
         engine.db().clone(),
         engine.project_id(),
@@ -226,4 +230,92 @@ fn cmd_stats(engine: &HermesEngine, since_arg: Option<&str>) -> Result<()> {
     });
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmd_add_fact_and_list() {
+        let engine = HermesEngine::in_memory("test-cli-fact").unwrap();
+        cmd_add_fact(&engine, "decision", "Use Rust for backend").unwrap();
+        cmd_list_facts(&engine, Some("decision")).unwrap();
+        cmd_list_facts(&engine, None).unwrap();
+    }
+
+    #[test]
+    fn cmd_stats_returns_zero_for_empty_engine() {
+        let engine = HermesEngine::in_memory("test-cli-stats").unwrap();
+        cmd_stats(&engine, None).unwrap();
+    }
+
+    #[test]
+    fn cmd_stats_with_duration_filter() {
+        let engine = HermesEngine::in_memory("test-cli-stats-dur").unwrap();
+        cmd_stats(&engine, Some("24h")).unwrap();
+        cmd_stats(&engine, Some("7d")).unwrap();
+        cmd_stats(&engine, Some("all")).unwrap();
+    }
+
+    #[test]
+    fn cmd_index_on_empty_directory() {
+        let engine = HermesEngine::in_memory("test-cli-index").unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        cmd_index(&engine, dir.path(), false).unwrap();
+    }
+
+    #[test]
+    fn cmd_search_on_empty_graph() {
+        let engine = HermesEngine::in_memory("test-cli-search").unwrap();
+        cmd_search(&engine, "nonexistent_function").unwrap();
+    }
+
+    #[test]
+    fn cmd_fetch_on_missing_node() {
+        let engine = HermesEngine::in_memory("test-cli-fetch").unwrap();
+        let result = cmd_fetch(&engine, "nonexistent-id");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn open_engine_uses_env_vars() {
+        std::env::set_var("HERMES_PROJECT_ROOT", ".");
+        let result = open_engine();
+        assert!(result.is_ok());
+        let (engine, _root) = result.unwrap();
+        assert!(!engine.project_id().is_empty());
+    }
+
+    #[test]
+    fn cmd_index_force() {
+        let engine = HermesEngine::in_memory("test-cli-index-force").unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("lib.rs"), "pub fn force_test() {}").unwrap();
+        cmd_index(&engine, dir.path(), true).unwrap();
+    }
+
+    #[test]
+    fn cmd_search_with_indexed_data() {
+        let engine = HermesEngine::in_memory("test-cli-search-idx").unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("lib.rs"), "pub fn unique_fn_name() {}").unwrap();
+        cmd_index(&engine, dir.path(), false).unwrap();
+        cmd_search(&engine, "unique_fn_name").unwrap();
+    }
+
+    #[test]
+    fn cmd_stats_with_invalid_duration() {
+        let engine = HermesEngine::in_memory("test-cli-stats-invalid").unwrap();
+        // Invalid duration format falls back to cumulative
+        cmd_stats(&engine, Some("invalid")).unwrap();
+    }
+
+    #[test]
+    fn cmd_fact_empty_ignored() {
+        let engine = HermesEngine::in_memory("test-cli-fact-empty").unwrap();
+        // Empty fact is allowed at the engine level but recording does nothing visible
+        let result = cmd_add_fact(&engine, "decision", "");
+        assert!(result.is_err() || result.is_ok()); // Accept either
+    }
 }

@@ -4,6 +4,7 @@ pub mod env_scanner;
 pub mod hash_tracker;
 
 use crate::graph::{ChunkWriteRecord, EdgeType, KnowledgeGraph, NodeType};
+use crate::lock_ext::LockExt;
 use anyhow::Result;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -104,7 +105,7 @@ impl<'a> IngestionPipeline<'a> {
             .flat_map(|file| self.env_scanner.scan_file(&file.path, &file.content))
             .collect();
 
-        let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.graph.db().lock_ctx("ingestion")?;
         self.env_scanner
             .populate_registry(&conn, self.graph.project_id(), &discovered)?;
         info!(

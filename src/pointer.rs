@@ -51,7 +51,7 @@ impl Pointer {
 impl PointerResponse {
     pub fn build(pointers: Vec<Pointer>, fetched_tokens: u64) -> Self {
         let pointer_tokens: u64 = pointers.iter().map(|p| p.estimate_token_count()).sum();
-        let traditional_estimate = pointer_tokens * 15;
+        let traditional_estimate = pointer_tokens.saturating_mul(15);
         let total = pointer_tokens + fetched_tokens;
         let savings_pct = if traditional_estimate > 0 {
             (1.0 - (total as f64 / traditional_estimate as f64)) * 100.0

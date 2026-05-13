@@ -42,7 +42,7 @@ pub fn vec_to_blob(v: &[f32]) -> Vec<u8> {
 
 pub fn blob_to_vec(b: &[u8]) -> Vec<f32> {
     b.chunks_exact(4)
-        .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+        .map(|c| f32::from_le_bytes(c.try_into().unwrap_or_default()))
         .collect()
 }
 

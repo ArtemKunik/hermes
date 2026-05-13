@@ -1,11 +1,14 @@
 pub mod accounting;
-/// Optional Gemini embedding client — not used by the default search pipeline.
+pub(crate) mod engine_cache;
 pub mod embedding;
 pub mod graph;
 pub mod graph_builders;
 pub mod graph_queries;
 pub mod ingestion;
+pub(crate) mod lock_ext;
 pub mod mcp_server;
+pub(crate) mod mcp_tools;
+pub(crate) mod mcp_tools_schema;
 pub mod mcp_tools_validation;
 pub mod neural_embed;
 pub mod pointer;

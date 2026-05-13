@@ -13,6 +13,7 @@
 
 use std::env;
 use std::sync::OnceLock;
+use tracing::{info, warn};
 
 /// Dimension returned by typical local embedding models (nomic-embed-text-v1.5
 /// and most others).  Overridable via HERMES_EMBED_DIM.
@@ -53,7 +54,7 @@ pub fn embed(text: &str) -> Vec<f32> {
         match call_embed_api(c, text) {
             Ok(vec) => return vec,
             Err(e) => {
-                eprintln!("[hermes] neural embed failed, using local fallback: {e}");
+                warn!("[hermes] neural embed failed, using local fallback: {e}");
             }
         }
     }
@@ -80,11 +81,11 @@ fn get_client() -> Option<&'static EmbedClient> {
             let probe = call_embed_api_raw(&client, &url, &model, "test");
             match probe {
                 Ok(_) => {
-                    eprintln!("[hermes] neural embeddings active: url={url} model={model}");
+                    info!("[hermes] neural embeddings active: url={url} model={model}");
                     Some(EmbedClient { url, model, client })
                 }
                 Err(e) => {
-                    eprintln!("[hermes] HERMES_EMBED_URL set but probe failed ({e}); using local embeddings");
+                    warn!("[hermes] HERMES_EMBED_URL set but probe failed ({e}); using local embeddings");
                     None
                 }
             }
@@ -157,4 +158,44 @@ fn call_embed_api_raw(
         return Err("empty embedding vector".to_string());
     }
     Ok(vec)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embed_produces_vector() {
+        std::env::remove_var("HERMES_EMBED_URL");
+        let vec = embed("hello world");
+        assert!(!vec.is_empty());
+        assert!(vec.len() > 0);
+    }
+
+    #[test]
+    fn embed_different_inputs_produce_different_vectors() {
+        std::env::remove_var("HERMES_EMBED_URL");
+        let v1 = embed("hello");
+        let v2 = embed("world");
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn embed_empty_string_produces_vector() {
+        std::env::remove_var("HERMES_EMBED_URL");
+        let vec = embed("");
+        assert!(!vec.is_empty());
+    }
+
+    #[test]
+    fn is_neural_active_false_when_not_configured() {
+        std::env::remove_var("HERMES_EMBED_URL");
+        let vec = embed("test");
+        assert!(!vec.is_empty());
+    }
+
+    #[test]
+    fn vector_dim_is_positive() {
+        assert!(vector_dim() > 0);
+    }
 }

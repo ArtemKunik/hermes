@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::lock_ext::LockExt;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CumulativeStats {
     pub total_queries: u64,
@@ -36,7 +38,7 @@ impl Accountant {
         fetched_tokens: u64,
         traditional_estimate: u64,
     ) -> Result<()> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.db.lock_ctx("record_query")?;
         conn.execute(
             "INSERT INTO accounting (project_id, session_id, query_text, pointer_tokens, fetched_tokens, traditional_est)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -57,7 +59,7 @@ impl Accountant {
     }
 
     pub fn get_stats_since(&self, since: Option<Duration>) -> Result<CumulativeStats> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.db.lock_ctx("get_stats_since")?;
 
         let (query, params_values): (String, Vec<String>) = if let Some(dur) = since {
             let secs = dur.as_secs() as i64;
@@ -87,32 +89,12 @@ impl Accountant {
         };
 
         let mut stmt = conn.prepare(&query)?;
-        let stats = stmt.query_row(rusqlite::params_from_iter(params_values.iter()), |row| {
-            let total_queries: u64 = row.get(0)?;
-            let ptr_tokens: u64 = row.get(1)?;
-            let fetch_tokens: u64 = row.get(2)?;
-            let trad_est: u64 = row.get(3)?;
-            let actual = ptr_tokens + fetch_tokens;
-            let saved = trad_est.saturating_sub(actual);
-            let pct = if trad_est > 0 {
-                (saved as f64 / trad_est as f64) * 100.0
-            } else {
-                0.0
-            };
-            Ok(CumulativeStats {
-                total_queries,
-                total_pointer_tokens: ptr_tokens,
-                total_fetched_tokens: fetch_tokens,
-                total_traditional_estimate: trad_est,
-                cumulative_savings_tokens: saved,
-                cumulative_savings_pct: pct,
-            })
-        })?;
+        let stats = stmt.query_row(rusqlite::params_from_iter(params_values.iter()), stats_from_row)?;
         Ok(stats)
     }
 
     pub fn get_session_stats(&self) -> Result<CumulativeStats> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.db.lock_ctx("get_session_stats")?;
         let mut stmt = conn.prepare(
             "SELECT COUNT(*),
                     COALESCE(SUM(pointer_tokens), 0),
@@ -120,27 +102,7 @@ impl Accountant {
                     COALESCE(SUM(traditional_est), 0)
              FROM accounting WHERE project_id = ?1 AND session_id = ?2",
         )?;
-        let stats = stmt.query_row(params![self.project_id, self.session_id], |row| {
-            let total_queries: u64 = row.get(0)?;
-            let ptr_tokens: u64 = row.get(1)?;
-            let fetch_tokens: u64 = row.get(2)?;
-            let trad_est: u64 = row.get(3)?;
-            let actual = ptr_tokens + fetch_tokens;
-            let saved = trad_est.saturating_sub(actual);
-            let pct = if trad_est > 0 {
-                (saved as f64 / trad_est as f64) * 100.0
-            } else {
-                0.0
-            };
-            Ok(CumulativeStats {
-                total_queries,
-                total_pointer_tokens: ptr_tokens,
-                total_fetched_tokens: fetch_tokens,
-                total_traditional_estimate: trad_est,
-                cumulative_savings_tokens: saved,
-                cumulative_savings_pct: pct,
-            })
-        })?;
+        let stats = stmt.query_row(params![self.project_id, self.session_id], stats_from_row)?;
         Ok(stats)
     }
 
@@ -149,7 +111,7 @@ impl Accountant {
     /// midnight, because it uses the SQLite `date('now','localtime')` function
     /// rather than the session_id string that was set at startup.
     pub fn get_today_stats(&self) -> Result<CumulativeStats> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.db.lock_ctx("get_today_stats")?;
         let mut stmt = conn.prepare(
             "SELECT COUNT(*),
                     COALESCE(SUM(pointer_tokens), 0),
@@ -159,29 +121,31 @@ impl Accountant {
              WHERE project_id = ?1
                AND date(created_at, 'localtime') = date('now', 'localtime')",
         )?;
-        let stats = stmt.query_row(params![self.project_id], |row| {
-            let total_queries: u64 = row.get(0)?;
-            let ptr_tokens: u64 = row.get(1)?;
-            let fetch_tokens: u64 = row.get(2)?;
-            let trad_est: u64 = row.get(3)?;
-            let actual = ptr_tokens + fetch_tokens;
-            let saved = trad_est.saturating_sub(actual);
-            let pct = if trad_est > 0 {
-                (saved as f64 / trad_est as f64) * 100.0
-            } else {
-                0.0
-            };
-            Ok(CumulativeStats {
-                total_queries,
-                total_pointer_tokens: ptr_tokens,
-                total_fetched_tokens: fetch_tokens,
-                total_traditional_estimate: trad_est,
-                cumulative_savings_tokens: saved,
-                cumulative_savings_pct: pct,
-            })
-        })?;
+        let stats = stmt.query_row(params![self.project_id], stats_from_row)?;
         Ok(stats)
     }
+}
+
+fn stats_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CumulativeStats> {
+    let total_queries: u64 = row.get(0)?;
+    let ptr_tokens: u64 = row.get(1)?;
+    let fetch_tokens: u64 = row.get(2)?;
+    let trad_est: u64 = row.get(3)?;
+    let actual = ptr_tokens + fetch_tokens;
+    let saved = trad_est.saturating_sub(actual);
+    let pct = if trad_est > 0 {
+        (saved as f64 / trad_est as f64) * 100.0
+    } else {
+        0.0
+    };
+    Ok(CumulativeStats {
+        total_queries,
+        total_pointer_tokens: ptr_tokens,
+        total_fetched_tokens: fetch_tokens,
+        total_traditional_estimate: trad_est,
+        cumulative_savings_tokens: saved,
+        cumulative_savings_pct: pct,
+    })
 }
 
 pub fn parse_since_duration(s: &str) -> Option<Duration> {

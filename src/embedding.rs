@@ -137,6 +137,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn new_fails_without_api_key() {
+        std::env::remove_var("GEMINI_API_KEY");
+        let result = EmbeddingGenerator::new();
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn dimension_is_768() {
         assert_eq!(EmbeddingGenerator::dimension(), 768);
     }

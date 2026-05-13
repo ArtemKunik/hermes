@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde_json::json;
 
+use crate::lock_ext::LockExt;
 use crate::HermesEngine;
 
 /// Validate an environment variable name against the config_registry.
@@ -9,7 +10,7 @@ use crate::HermesEngine;
 /// `{valid: false, suggestions: [...]}` with the 5 closest known names
 /// (by Levenshtein distance) so the caller can spot typos immediately.
 pub fn tool_validate_env(engine: &HermesEngine, env_var: &str) -> Result<String> {
-    let conn = engine.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine.db().lock_ctx("tool_validate_env")?;
     let project_id = engine.project_id();
 
     let count: i64 = conn.query_row(
@@ -61,7 +62,7 @@ pub fn tool_validate_env(engine: &HermesEngine, env_var: &str) -> Result<String>
 /// - `unused_variables`   — defined but never accessed in code (dead config)
 /// - `consistent_variables` — both defined and used
 pub fn tool_check_consistency(engine: &HermesEngine) -> Result<String> {
-    let conn = engine.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine.db().lock_ctx("tool_check_consistency")?;
     let project_id = engine.project_id();
 
     let mut stmt = conn.prepare(

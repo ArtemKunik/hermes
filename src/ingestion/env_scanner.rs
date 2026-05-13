@@ -164,10 +164,10 @@ impl EnvScanner {
                         let key = item
                             .split(':')
                             .next()
-                            .unwrap()
+                            .unwrap_or("")
                             .split('=')
                             .next()
-                            .unwrap()
+                            .unwrap_or("")
                             .trim();
                         if !key.is_empty()
                             && key

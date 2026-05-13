@@ -4,6 +4,8 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::lock_ext::LockExt;
+
 pub struct HashTracker<'a> {
     db: &'a Arc<Mutex<Connection>>,
     project_id: &'a str,
@@ -15,7 +17,7 @@ impl<'a> HashTracker<'a> {
     }
 
     pub fn load_all_hashes(&self) -> Result<HashMap<String, String>> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.db.lock_ctx("hash_tracker")?;
         let mut stmt =
             conn.prepare("SELECT file_path, content_hash FROM file_hashes WHERE project_id = ?1")?;
         let rows = stmt.query_map(params![self.project_id], |row| {
@@ -31,7 +33,7 @@ impl<'a> HashTracker<'a> {
     }
 
     pub fn clear_all_hashes(&self) -> Result<()> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.db.lock_ctx("hash_tracker")?;
         conn.execute(
             "DELETE FROM file_hashes WHERE project_id = ?1",
             params![self.project_id],
@@ -40,7 +42,7 @@ impl<'a> HashTracker<'a> {
     }
 
     pub fn store_hash(&self, file_path: &str, hash: &str) -> Result<()> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let conn = self.db.lock_ctx("hash_tracker")?;
         conn.execute(
             "INSERT OR REPLACE INTO file_hashes (file_path, project_id, content_hash, indexed_at)
               VALUES (?1, ?2, ?3, datetime('now'))",
