@@ -30,3 +30,8 @@ hermes-kotlin/.settings/
 hermes-kotlin/local.properties
 
 opencode.json
+
+# Local tool directories
+.claude/
+.opencode/
+output/
