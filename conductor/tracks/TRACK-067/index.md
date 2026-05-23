@@ -1,6 +1,6 @@
 # TRACK-067: Fix stale search results after file deletion
 
-**Status**: planned
+**Status**: completed
 
 ## Problem
 

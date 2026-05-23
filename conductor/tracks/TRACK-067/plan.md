@@ -2,7 +2,7 @@
 
 ## Plan
 
-### Task 1 — Write regression test (fail first) [ ]
+### Task 1 — Write regression test (fail first) [x]
 
 **Goal**: Lock down the bug pattern with a deterministic failing test.
 
@@ -14,7 +14,7 @@
 
 **Seam**: `src/graph_queries.rs` — test uses `HermesEngine::in_memory()` + direct graph ops, no network needed.
 
-### Task 2 — Fix `get_all_file_paths` to return ALL paths [ ]
+### Task 2 — Fix `get_all_file_paths` to return ALL paths [x]
 
 **Goal**: Make `cleanup_stale_nodes()` see every path stored in the database.
 
@@ -31,7 +31,7 @@ WHERE project_id = ?1 AND file_path IS NOT NULL
 
 **Risk**: Low. This is a single-line SQL change. The query already has `project_id` scoping.
 
-### Task 3 — Verify regression test passes [ ]
+### Task 3 — Verify regression test passes [x]
 
 1. Run the test from Task 1 → should pass
 2. Run `cargo test` → no regressions
@@ -73,6 +73,14 @@ WHERE project_id = ?1 AND file_path IS NOT NULL
 | `src/ingestion/mod.rs:182-189` | No change needed (cleanup logic already correct) | — |
 | `src/mcp_memory/session.rs:85-92` | Add cache invalidation after background ingest (Task 4) | Medium |
 | `src/mcp_memory/decision.rs:76-83` | Same as above (Task 4) | Medium |
+
+## Fix Applied
+
+- **File**: `src/graph_queries.rs:47` — removed `node_type = 'file'` filter from `get_all_file_paths()` SQL query
+- **Tests added**:
+  - `get_all_file_paths_returns_paths_from_non_file_nodes` — verifies Function/Struct nodes appear in path set
+  - `get_all_file_paths_deduplicates_shared_paths` — verifies same path from different types is deduplicated
+- **Tests verified**: `test_stale_file_removed_after_deletion`, `delete_nodes_for_file_removes_file_hashes_and_chunk_hashes` — all pass
 
 ## Verification
 

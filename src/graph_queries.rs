@@ -44,7 +44,7 @@ impl KnowledgeGraph {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT file_path FROM nodes
-                 WHERE project_id = ?1 AND node_type = 'file' AND file_path IS NOT NULL",
+                 WHERE project_id = ?1 AND file_path IS NOT NULL",
             )?;
             let paths = stmt
                 .query_map(params![self.project_id()], |row| row.get::<_, String>(0))?
@@ -174,5 +174,55 @@ mod tests {
             )
             .unwrap();
         assert_eq!(remaining, 0);
+    }
+
+    #[test]
+    fn get_all_file_paths_returns_paths_from_non_file_nodes() {
+        let engine = HermesEngine::in_memory("test-nonfile-paths").unwrap();
+        let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+
+        let func_node = NodeBuilder::new(engine.project_id())
+            .name("test_function")
+            .node_type(NodeType::Function)
+            .file_path("/project/src/lib.rs")
+            .build();
+        graph.add_node(&func_node).unwrap();
+
+        let struct_node = NodeBuilder::new(engine.project_id())
+            .name("TestStruct")
+            .node_type(NodeType::Struct)
+            .file_path("/project/src/lib.rs")
+            .build();
+        graph.add_node(&struct_node).unwrap();
+
+        let paths = graph.get_all_file_paths().unwrap();
+        assert!(
+            paths.contains("/project/src/lib.rs"),
+            "get_all_file_paths should return paths from Function/Struct nodes, got: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn get_all_file_paths_deduplicates_shared_paths() {
+        let engine = HermesEngine::in_memory("test-dedup-paths").unwrap();
+        let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+
+        let file_node = NodeBuilder::new(engine.project_id())
+            .name("lib.rs")
+            .node_type(NodeType::File)
+            .file_path("/project/src/lib.rs")
+            .build();
+        graph.add_node(&file_node).unwrap();
+
+        let func_node = NodeBuilder::new(engine.project_id())
+            .name("helper")
+            .node_type(NodeType::Function)
+            .file_path("/project/src/lib.rs")
+            .build();
+        graph.add_node(&func_node).unwrap();
+
+        let paths = graph.get_all_file_paths().unwrap();
+        assert_eq!(paths.len(), 1, "same path from different node types should be deduplicated");
+        assert!(paths.contains("/project/src/lib.rs"));
     }
 }
