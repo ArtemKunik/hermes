@@ -7,12 +7,12 @@ pub fn lock_retry_budget() -> usize {
     std::env::var("HERMES_DB_LOCK_RETRIES")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(6)
+        .unwrap_or(10)
 }
 
 pub fn lock_retry_delay_ms(attempt: usize) -> u64 {
-    let clamped = attempt.min(5) as u32;
-    200 * (1u64 << clamped)
+    let clamped = attempt.min(7) as u32;
+    100 * (1u64 << clamped)
 }
 
 #[cfg(test)]
@@ -31,14 +31,14 @@ mod tests {
     #[test]
     fn uses_default_retry_budget() {
         std::env::remove_var("HERMES_DB_LOCK_RETRIES");
-        assert_eq!(lock_retry_budget(), 6);
+        assert_eq!(lock_retry_budget(), 10);
     }
 
     #[test]
     fn backoff_caps_at_max_attempt() {
-        assert_eq!(lock_retry_delay_ms(0), 200);
-        assert_eq!(lock_retry_delay_ms(1), 400);
-        assert_eq!(lock_retry_delay_ms(5), 6400);
-        assert_eq!(lock_retry_delay_ms(8), 6400);
+        assert_eq!(lock_retry_delay_ms(0), 100);
+        assert_eq!(lock_retry_delay_ms(1), 200);
+        assert_eq!(lock_retry_delay_ms(5), 3200);
+        assert_eq!(lock_retry_delay_ms(8), 12800);
     }
 }

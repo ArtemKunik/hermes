@@ -2,9 +2,14 @@ use anyhow::Result;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 const STALE_LOCK_AGE: Duration = Duration::from_secs(15 * 60);
+
+static LOCK_ACQUISITIONS: AtomicUsize = AtomicUsize::new(0);
+static LOCK_CONTENTIONS: AtomicUsize = AtomicUsize::new(0);
+static LOCK_RECLAIMS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
 pub struct LockDetails {
@@ -44,15 +49,18 @@ pub fn try_acquire_index_lock(project_root: &Path) -> Result<LockAcquisition> {
     match try_create_lock(&lock_path) {
         Ok(lock) => {
             log_lock_event("acquired", &lock_path, None);
+            LOCK_ACQUISITIONS.fetch_add(1, Ordering::Relaxed);
             Ok(LockAcquisition::Acquired(lock))
         }
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            LOCK_CONTENTIONS.fetch_add(1, Ordering::Relaxed);
             let snapshot = inspect_lock_file(&lock_path)?;
             if snapshot.should_reclaim {
                 log_lock_event("reclaiming-stale", &lock_path, Some(&snapshot));
                 let _ = std::fs::remove_file(&lock_path);
                 let lock = try_create_lock(&lock_path)?;
                 log_lock_event("reacquired", &lock_path, Some(&snapshot));
+                LOCK_RECLAIMS.fetch_add(1, Ordering::Relaxed);
                 return Ok(LockAcquisition::Acquired(lock));
             }
             log_lock_event("busy", &lock_path, Some(&snapshot));
@@ -191,4 +199,14 @@ mod tests {
         let acq = try_acquire_index_lock(temp.path()).unwrap();
         assert!(matches!(acq, LockAcquisition::Acquired(_)));
     }
+}
+
+/// Report lock metrics for debugging contention issues
+pub fn report_lock_metrics() {
+    eprintln!(
+        "[hermes:index-lock] metrics acquisitions={} contentions={} reclaims={}",
+        LOCK_ACQUISITIONS.load(Ordering::Relaxed),
+        LOCK_CONTENTIONS.load(Ordering::Relaxed),
+        LOCK_RECLAIMS.load(Ordering::Relaxed)
+    );
 }

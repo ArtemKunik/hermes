@@ -263,14 +263,14 @@ pub fn resolve_busy_timeout_secs() -> u64 {
     std::env::var("HERMES_DB_BUSY_TIMEOUT")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(30)
+        .unwrap_or(60)
 }
 
 pub fn resolve_diagnostic_busy_timeout_ms() -> u64 {
     std::env::var("HERMES_DIAGNOSTIC_DB_BUSY_TIMEOUT_MS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(250)
+        .unwrap_or(500)
 }
 
 #[cfg(test)]
