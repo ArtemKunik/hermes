@@ -211,6 +211,10 @@ pub(crate) fn execute_tool_call(
         "hermes_quality_next" => crate::mcp_quality::tool_quality_next(engine, project_root, args),
         "hermes_quality_resolve" => crate::mcp_quality::tool_quality_resolve(engine, project_root, args),
         "hermes_quality_wontfix" => crate::mcp_quality::tool_quality_wontfix(engine, project_root, args),
+        "hermes_quality_dismiss" => crate::mcp_dismiss::tool_quality_dismiss(engine, project_root, args),
+        "hermes_lint_dismiss" => crate::mcp_dismiss::tool_lint_dismiss(engine, project_root, args),
+        "hermes_dismissed_list" => crate::mcp_dismiss::tool_dismissed_list(engine, project_root, args),
+        "hermes_auto_dismiss" => crate::mcp_dismiss::tool_auto_dismiss(engine, project_root, args),
         "hermes_query_memory" => {
             let query = args["query"].as_str().unwrap_or("");
             anyhow::ensure!(!query.is_empty(), "hermes_query_memory requires 'query'");

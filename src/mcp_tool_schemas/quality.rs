@@ -101,5 +101,77 @@ pub fn tools() -> Vec<Value> {
                 }
             }
         }),
+        json!({
+            "name": "hermes_quality_dismiss",
+            "description": "Dismiss a quality finding. It disappears from active lists but remains in the database to avoid resurfacing.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["id"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Finding ID (e.g. 'Q-A1B2C3D4')."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional reason for dismissal."
+                    }
+                }
+            }
+        }),
+        json!({
+            "name": "hermes_lint_dismiss",
+            "description": "Dismiss a lint violation or skill candidate by ID. Stored in DB so it won't resurface in future scans.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["item_type", "item_id"],
+                "properties": {
+                    "item_type": {
+                        "type": "string",
+                        "enum": ["violation", "skill_candidate"],
+                        "description": "Type of item to dismiss."
+                    },
+                    "item_id": {
+                        "type": "string",
+                        "description": "Unique identifier (fingerprint for violations, name for skill candidates)."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional reason for dismissal."
+                    }
+                }
+            }
+        }),
+        json!({
+            "name": "hermes_dismissed_list",
+            "description": "List all dismissed items (findings, violations, skill candidates) for the current project.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "item_type": {
+                        "type": "string",
+                        "enum": ["finding", "violation", "skill_candidate"],
+                        "description": "Optional filter by item type."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return. Defaults to 100."
+                    }
+                }
+            }
+        }),
+        json!({
+            "name": "hermes_auto_dismiss",
+            "description": "Auto-dismiss open quality findings older than N days (default 30). Useful for cleaning up stale items.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "max_age_days": {
+                        "type": "integer",
+                        "description": "Max age in days before auto-dismiss. Defaults to 30."
+                    }
+                }
+            }
+        }),
     ]
 }

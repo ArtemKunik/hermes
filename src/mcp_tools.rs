@@ -160,6 +160,17 @@ fn mastermind_client() -> reqwest::blocking::Client {
         .unwrap_or_default()
 }
 
+/// Generic Mastermind proxy — handles URL resolution, client construction, and response deserialization for POST requests.
+pub fn proxy_to_mastermind(engine: &HermesEngine, path_suffix: &str) -> Result<String> {
+    let mastermind_url = std::env::var("MASTERMIND_API_URL")
+        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+
+    let client = mastermind_client();
+    let resp = client.post(format!("{mastermind_url}{path_suffix}")).send()?;
+    let body: serde_json::Value = resp.json()?;
+    Ok(serde_json::to_string_pretty(&body)?)
+}
+
 pub fn tool_slow_loop_status(_engine: &HermesEngine) -> Result<String> {
     let mastermind_url = std::env::var("MASTERMIND_API_URL")
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
@@ -182,93 +193,27 @@ pub fn tool_slow_loop_status(_engine: &HermesEngine) -> Result<String> {
 }
 
 pub fn tool_generate_digest(_engine: &HermesEngine, date: &str) -> Result<String> {
-    let mastermind_url = std::env::var("MASTERMIND_API_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
-
-    let client = mastermind_client();
-    let resp = client
-        .post(format!(
-            "{}/consolidator/daily-digest/{}",
-            mastermind_url, date
-        ))
-        .send()?;
-
-    let body: serde_json::Value = resp.json()?;
-    Ok(serde_json::to_string_pretty(&body)?)
+    proxy_to_mastermind(_engine, &format!("/consolidator/daily-digest/{date}"))
 }
 
-pub fn tool_compact_sessions(_engine: &HermesEngine) -> Result<String> {
-    let mastermind_url = std::env::var("MASTERMIND_API_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
-
-    let client = mastermind_client();
-    let resp = client
-        .post(format!("{}/consolidator/compact-sessions", mastermind_url))
-        .send()?;
-
-    let body: serde_json::Value = resp.json()?;
-    Ok(serde_json::to_string_pretty(&body)?)
+pub fn tool_compact_sessions(engine: &HermesEngine) -> Result<String> {
+    proxy_to_mastermind(engine, "/consolidator/compact-sessions")
 }
 
-pub fn tool_generate_weekly_brief(_engine: &HermesEngine) -> Result<String> {
-    let mastermind_url = std::env::var("MASTERMIND_API_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
-
-    let client = mastermind_client();
-    let resp = client
-        .post(format!("{}/consolidator/weekly-brief", mastermind_url))
-        .send()?;
-
-    let body: serde_json::Value = resp.json()?;
-    Ok(serde_json::to_string_pretty(&body)?)
+pub fn tool_generate_weekly_brief(engine: &HermesEngine) -> Result<String> {
+    proxy_to_mastermind(engine, "/consolidator/weekly-brief")
 }
 
 pub fn tool_approve_skill_candidate(_engine: &HermesEngine, name: &str) -> Result<String> {
-    let mastermind_url = std::env::var("MASTERMIND_API_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
-
-    let client = mastermind_client();
-    let resp = client
-        .post(format!(
-            "{}/consolidator/approve-skill/{}",
-            mastermind_url, name
-        ))
-        .send()?;
-
-    let body: serde_json::Value = resp.json()?;
-    Ok(serde_json::to_string_pretty(&body)?)
+    proxy_to_mastermind(_engine, &format!("/consolidator/approve-skill/{name}"))
 }
 
 pub fn tool_reject_skill_candidate(_engine: &HermesEngine, name: &str) -> Result<String> {
-    let mastermind_url = std::env::var("MASTERMIND_API_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
-
-    let client = mastermind_client();
-    let resp = client
-        .post(format!(
-            "{}/consolidator/reject-skill/{}",
-            mastermind_url, name
-        ))
-        .send()?;
-
-    let body: serde_json::Value = resp.json()?;
-    Ok(serde_json::to_string_pretty(&body)?)
+    proxy_to_mastermind(_engine, &format!("/consolidator/reject-skill/{name}"))
 }
 
 pub fn tool_apply_proposal(_engine: &HermesEngine, filename: &str) -> Result<String> {
-    let mastermind_url = std::env::var("MASTERMIND_API_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
-
-    let client = mastermind_client();
-    let resp = client
-        .post(format!(
-            "{}/consolidator/apply-proposal/{}",
-            mastermind_url, filename
-        ))
-        .send()?;
-
-    let body: serde_json::Value = resp.json()?;
-    Ok(serde_json::to_string_pretty(&body)?)
+    proxy_to_mastermind(_engine, &format!("/consolidator/apply-proposal/{filename}"))
 }
 
 #[cfg(test)]

@@ -22,6 +22,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     create_search_misses_table(conn);
     migrate_temporal_facts_extended(conn);
     create_missions_table(conn);
+    create_dismissed_items_table(conn);
     Ok(())
 }
 

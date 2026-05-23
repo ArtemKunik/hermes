@@ -30,6 +30,7 @@ pub enum FindingStatus {
     Open,
     Resolved,
     Wontfix,
+    Dismissed,
 }
 
 impl FindingStatus {
@@ -38,7 +39,12 @@ impl FindingStatus {
             Self::Open => "open",
             Self::Resolved => "resolved",
             Self::Wontfix => "wontfix",
+            Self::Dismissed => "dismissed",
         }
+    }
+
+    pub fn is_active(&self) -> bool {
+        matches!(self, Self::Open)
     }
 }
 

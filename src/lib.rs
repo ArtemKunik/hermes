@@ -24,6 +24,7 @@ pub mod mcp_incidents;
 pub mod incident_io;
 pub mod kb_handler;
 pub mod mcp_lint;
+pub mod mcp_dismiss;
 pub mod mcp_lint_scope;
 pub mod mcp_memory;
 pub mod mission;

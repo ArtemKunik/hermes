@@ -129,6 +129,27 @@ pub(crate) fn migrate_temporal_facts_extended(conn: &Connection) {
     );
 }
 
+/// Idempotent: create `dismissed_items` table for tracking dismissed findings, skill candidates, and violations.
+pub(crate) fn create_dismissed_items_table(conn: &Connection) {
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS dismissed_items (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id      TEXT NOT NULL,
+            item_type       TEXT NOT NULL CHECK(item_type IN ('finding', 'skill_candidate', 'violation')),
+            item_id         TEXT NOT NULL,
+            reason          TEXT,
+            dismissed_by    TEXT NOT NULL DEFAULT 'system',
+            dismissed_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(item_type, item_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_dismissed_project
+            ON dismissed_items(project_id);
+        CREATE INDEX IF NOT EXISTS idx_dismissed_type_item
+            ON dismissed_items(item_type, item_id);",
+    );
+}
+
 /// Idempotent: create `missions` table for the hermes-missions spec.
 pub(crate) fn create_missions_table(conn: &Connection) {
     let _ = conn.execute_batch(
