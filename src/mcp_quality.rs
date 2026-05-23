@@ -272,7 +272,7 @@ pub fn tool_quality_resolve(
     })?;
     anyhow::ensure!(resolved, "finding {id} not found");
 
-    recompute_all_scores(&mut state);
+    state.recompute_scores();
     save(project_root, &state)?;
 
     Ok(json!({"resolved": id, "project_score": state.project_score}).to_string())
@@ -295,7 +295,7 @@ pub fn tool_quality_wontfix(
     })?;
     anyhow::ensure!(found, "finding {id} not found");
 
-    recompute_all_scores(&mut state);
+    state.recompute_scores();
     save(project_root, &state)?;
 
     Ok(json!({"wontfix": id, "reason": reason, "project_score": state.project_score}).to_string())
@@ -309,13 +309,4 @@ fn apply_to_finding(state: &mut QualityState, id: &str, f: impl Fn(&mut Finding)
         }
     }
     Ok(false)
-}
-
-fn recompute_all_scores(state: &mut QualityState) {
-    for ms in state.modules.values_mut() {
-        ms.score_prev = ms.score;
-        ms.score = compute_module_score(&ms.findings);
-    }
-    state.project_score_prev = state.project_score;
-    state.project_score = compute_project_score(&state.modules);
 }

@@ -22,7 +22,7 @@ pub fn tool_quality_dismiss(
     })?;
     anyhow::ensure!(found, "finding {id} not found");
 
-    recompute_all_scores(&mut state);
+    state.recompute_scores();
     crate::quality::state::save(project_root, &state)?;
 
     let mut result = json!({"dismissed": id, "project_score": state.project_score});
@@ -177,7 +177,7 @@ pub fn tool_auto_dismiss(
     }
 
     if !auto_dismissed.is_empty() {
-        recompute_all_scores(&mut state);
+        state.recompute_scores();
         crate::quality::state::save(project_root, &state)?;
     }
 
@@ -223,15 +223,6 @@ fn apply_to_finding(state: &mut crate::quality::state::QualityState, id: &str, f
         }
     }
     Ok(false)
-}
-
-fn recompute_all_scores(state: &mut crate::quality::state::QualityState) {
-    for ms in state.modules.values_mut() {
-        ms.score_prev = ms.score;
-        ms.score = crate::quality::score::compute_module_score(&ms.findings);
-    }
-    state.project_score_prev = state.project_score;
-    state.project_score = crate::quality::score::compute_project_score(&state.modules);
 }
 
 struct DismissedRow {

@@ -10,6 +10,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use crate::quality::score::{compute_module_score, compute_project_score};
+
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// Snapshot of arch-lint violations used as the drift baseline.
@@ -140,6 +142,18 @@ impl Default for QualityState {
             project_score_prev: 100.0,
             lint_baseline: None,
         }
+    }
+}
+
+impl QualityState {
+    /// Recompute all module and project scores after findings changed.
+    pub fn recompute_scores(&mut self) {
+        for ms in self.modules.values_mut() {
+            ms.score_prev = ms.score;
+            ms.score = compute_module_score(&ms.findings);
+        }
+        self.project_score_prev = self.project_score;
+        self.project_score = compute_project_score(&self.modules);
     }
 }
 
