@@ -9,6 +9,7 @@ use crate::graph::KnowledgeGraph;
 
 pub mod classifier;
 pub mod concurrency_rules;
+pub mod fintech_rules;
 pub mod layer_rules;
 pub mod query_rules;
 pub mod safety_rules;
@@ -111,7 +112,7 @@ pub trait ArchRule: Send + Sync {
 // Registry
 // ---------------------------------------------------------------------------
 
-/// Build the default rule registry (all 12 rules).
+/// Build the default rule registry (all 26 rules).
 pub fn default_rules() -> Vec<Box<dyn ArchRule>> {
     vec![
         Box::new(layer_rules::LayerHandlerImportsStore),
@@ -126,6 +127,20 @@ pub fn default_rules() -> Vec<Box<dyn ArchRule>> {
         Box::new(safety_rules::AnyWithoutSafetyRule),
         Box::new(concurrency_rules::RcUsageRule),
         Box::new(query_rules::StringInterpolationQueryRule),
+        Box::new(fintech_rules::NoF64MoneyRule),
+        Box::new(fintech_rules::RawDecimalRule),
+        Box::new(fintech_rules::StringlyMoneyRule),
+        Box::new(fintech_rules::MutableTransactionRule),
+        Box::new(fintech_rules::MissingCloneRule),
+        Box::new(fintech_rules::RcDomainRule),
+        Box::new(fintech_rules::UncheckedArithmeticRule),
+        Box::new(fintech_rules::DecimalOverflowRule),
+        Box::new(fintech_rules::MissingSerdeRule),
+        Box::new(fintech_rules::MissingValidationRule),
+        Box::new(fintech_rules::MissingAuditSpanRule),
+        Box::new(fintech_rules::MissingTraceIdRule),
+        Box::new(fintech_rules::CurrencyOpsRule),
+        Box::new(fintech_rules::PanicDomainRule),
     ]
 }
 
@@ -152,8 +167,8 @@ mod tests {
     }
 
     #[test]
-    fn default_rules_has_twelve_entries() {
-        assert_eq!(default_rules().len(), 12);
+    fn default_rules_has_twenty_six_entries() {
+        assert_eq!(default_rules().len(), 26);
     }
 
     #[test]

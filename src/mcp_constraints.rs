@@ -92,6 +92,11 @@ fn infer_crate(file_path: &str) -> String {
 
 fn rules_for_layer(layer: &Layer) -> Vec<serde_json::Value> {
     let all = default_rules();
+    let fintech_ids: &[&str] = &[
+        "FIN-001", "FIN-002", "FIN-003", "FIN-004", "FIN-005", "FIN-006",
+        "FIN-007", "FIN-008", "FIN-009", "FIN-010", "FIN-011", "FIN-012",
+        "FIN-013", "FIN-014",
+    ];
     let relevant_ids: &[&str] = match layer {
         Layer::Handler => &["LAYER-001", "LAYER-002", "SIZE-001", "SIZE-002", "SAFETY-001", "SAFETY-002"],
         Layer::Service => &["LAYER-003", "SIZE-001", "SIZE-002", "SAFETY-001", "SAFETY-002", "CONCURRENCY-001"],
@@ -103,9 +108,18 @@ fn rules_for_layer(layer: &Layer) -> Vec<serde_json::Value> {
         Layer::Test => &[],
         Layer::Unknown => &["SIZE-001", "SIZE-002"],
     };
+    let combined: Vec<&str> = match layer {
+        Layer::Test => relevant_ids.to_vec(),
+        Layer::Handler | Layer::Component | Layer::Hook | Layer::Api => relevant_ids.to_vec(),
+        Layer::Service | Layer::Store | Layer::Type | Layer::Unknown => {
+            let mut v = relevant_ids.to_vec();
+            v.extend(fintech_ids);
+            v
+        }
+    };
 
     all.iter()
-        .filter(|r| relevant_ids.contains(&r.id()))
+        .filter(|r| combined.contains(&r.id()))
         .map(|r| serde_json::json!({
             "rule_id": r.id(),
             "severity": r.severity().as_str(),
@@ -129,6 +143,20 @@ fn applies_because(rule_id: &str, layer: &Layer) -> &'static str {
         ("SAFETY-002", _) => "Production Rust must not panic via expect()",
         ("SAFETY-003", _) => "TypeScript `any` requires a // SAFETY: justification comment",
         ("CONCURRENCY-001", _) => "Async Rust must use Arc<T> not Rc for thread safety",
+        ("FIN-001", _) => "Financial values must use rust_decimal::Decimal not f64/f32",
+        ("FIN-002", _) => "Bare Decimal fields should be wrapped in a newtype for type safety",
+        ("FIN-003", _) => "Monetary values must not use String/&str — use a typed Amount newtype",
+        ("FIN-004", _) => "Transaction/Ledger types must be immutable for audit trail compliance",
+        ("FIN-005", _) => "Domain value objects must derive Clone for event sourcing compatibility",
+        ("FIN-006", _) => "Domain code must use Arc not Rc for thread-safe sharing",
+        ("FIN-007", _) => "Decimal arithmetic results must not be unwrapped — propagate errors with ?",
+        ("FIN-008", _) => "Use checked Decimal::add/sub instead of +/- operators",
+        ("FIN-009", _) => "Domain types should derive Serialize/Deserialize for persistence",
+        ("FIN-010", _) => "Decimal newtypes should validate monetary values in constructor",
+        ("FIN-011", _) => "Transaction apply() methods need tracing spans for audit trail",
+        ("FIN-012", _) => "Domain events/commands need trace_id: Uuid for correlation",
+        ("FIN-013", _) => "Amount arithmetic must verify currency match to prevent mixing currencies",
+        ("FIN-014", _) => "Domain/model code must not panic — use Result with domain error types",
         _ => "Applies to this file's architectural layer",
     }
 }

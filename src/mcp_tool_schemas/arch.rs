@@ -15,7 +15,7 @@ pub fn tools() -> Vec<Value> {
                     "scope":          { "type": "string",  "description": "Optional file path, directory, or crate name to limit scope. When omitted and mode!='full', auto-derived from git-changed files." },
                     "auto_scope":     { "type": "boolean", "description": "When true (default) and scope is omitted in summary/iterative mode, restrict the scan to git-changed files vs HEAD plus untracked. Set false to force a whole-repo scan." },
                     "severity_min":   { "type": "string",  "description": "Minimum severity to report: 'error' | 'warning' | 'info' (default: 'warning')", "enum": ["error", "warning", "info"] },
-                    "rules":          { "type": "array",   "items": { "type": "string" }, "description": "Specific rule IDs to check (e.g. ['LAYER-001','SIZE-001']). Default: all 12 rules." }
+                    "rules":          { "type": "array",   "items": { "type": "string" },                         "description": "Specific rule IDs to check (e.g. ['LAYER-001','SIZE-001']). Default: all 26 rules." }
                 }
             }
         }),
