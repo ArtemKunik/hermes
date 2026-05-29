@@ -1,0 +1,10 @@
+{
+  "name": "@smartposition/hermes-opencode-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Opencode plugin that bridges Hermes knowledge-engine tools into opencode sessions via ccterm HTTP proxy",
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.15.10"
+  }
+}
