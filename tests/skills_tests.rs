@@ -127,7 +127,13 @@ Use this skill when a Rust service needs a reusable outbound HTTP pattern.
     .unwrap();
 
     let engine = HermesEngine::in_memory("skills-index").unwrap();
-    mcp_tools::tool_index(&engine, dir.path()).unwrap();
+    {
+        let conn = engine.db().lock().unwrap();
+        mcp_tools::tool_index(&engine, &conn, dir.path()).unwrap();
+        let mut stmt = conn.prepare("SELECT name, file_path, project_id FROM skills").unwrap();
+        let rows: Vec<(String, String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().flatten().collect();
+        println!("SKILLS IN DB: {:?}", rows);
+    }
 
     let matched = mcp_skills::tool_match_skills(&engine, "http request retry", None).unwrap();
     let first_match = matched["matches"].as_array().unwrap()[0].clone();
@@ -166,15 +172,21 @@ description: Generate Rust unit tests from function behavior.
     .unwrap();
 
     let engine = HermesEngine::in_memory("skills-reindex").unwrap();
-    mcp_tools::tool_index(&engine, dir.path()).unwrap();
+    {
+        let conn = engine.db().lock().unwrap();
+        mcp_tools::tool_index(&engine, &conn, dir.path()).unwrap();
+    }
     let first = mcp_skills::tool_match_skills(&engine, "unit test", None).unwrap();
-    assert_eq!(first["total_matches"], 1);
+    assert_eq!(first["matches"].as_array().unwrap().len(), 1);
 
     fs::remove_dir_all(dir.path().join("skills")).unwrap();
 
-    mcp_tools::tool_index(&engine, dir.path()).unwrap();
+    {
+        let conn = engine.db().lock().unwrap();
+        mcp_tools::tool_index(&engine, &conn, dir.path()).unwrap();
+    }
     let second = mcp_skills::tool_match_skills(&engine, "unit test", None).unwrap();
-    assert_eq!(second["total_matches"], 0);
+    assert_eq!(second["matches"].as_array().unwrap().len(), 0);
 }
 
 #[test]
@@ -199,7 +211,10 @@ description: Submit tasks through the Training API.
     .unwrap();
 
     let engine = HermesEngine::in_memory("skills-relative-fetch").unwrap();
-    mcp_tools::tool_index(&engine, dir.path()).unwrap();
+    {
+        let conn = engine.db().lock().unwrap();
+        mcp_tools::tool_index(&engine, &conn, dir.path()).unwrap();
+    }
 
     let fetched = mcp_skills::tool_fetch_skill(
         &engine,

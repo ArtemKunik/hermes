@@ -109,3 +109,25 @@ fn diagnostic_busy_timeout_reads_env_override() {
     assert_eq!(resolve_diagnostic_busy_timeout_ms(), 900);
     std::env::remove_var("HERMES_DIAGNOSTIC_DB_BUSY_TIMEOUT_MS");
 }
+
+#[test]
+fn test_search_with_goal_hint_runs() {
+    let engine = HermesEngine::in_memory("test-goal").unwrap();
+    let result = crate::mcp_tools::tool_search(&engine, "anything", Some("error handling"));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_index_returns_busy_when_lock_exists() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("sample.rs"), "fn sample() {}").unwrap();
+    std::fs::write(temp.path().join(".hermes.index.lock"), "locked").unwrap();
+
+    let engine = HermesEngine::in_memory("test-index-busy").unwrap();
+    let conn = engine.db().lock().unwrap();
+    let result: serde_json::Value =
+        serde_json::from_str(&crate::mcp_tools::tool_index(&engine, &conn, temp.path()).unwrap()).unwrap();
+
+    assert_eq!(result["status"], "busy");
+    assert_eq!(result["non_blocking"], true);
+}

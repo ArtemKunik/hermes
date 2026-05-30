@@ -121,11 +121,13 @@ pub fn tool_fetch_skill_with_conn(
     conn: &rusqlite::Connection,
     skill_path: &str,
 ) -> Result<Value> {
+    let norm = skill_path.replace('\\', "/");
     let mut stmt = conn.prepare(
         "SELECT id, name, file_path, description, tags, version FROM skills \
-         WHERE file_path = ?1 AND project_id = ?2",
+         WHERE (file_path = ?1 OR file_path LIKE '%' || ?1) AND project_id = ?2 \
+         LIMIT 1",
     )?;
-    let row = stmt.query_row(params![skill_path, engine.project_id()], |r| {
+    let row = stmt.query_row(params![norm, engine.project_id()], |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
@@ -136,8 +138,22 @@ pub fn tool_fetch_skill_with_conn(
         ))
     })?;
 
-    let content = std::fs::read_to_string(skill_path)
+    let content = std::fs::read_to_string(&row.2)
         .map_err(|e| anyhow::anyhow!("failed to read skill file: {e}"))?;
+
+    let mut resource_roots = Vec::new();
+    if let Some(parent) = std::path::Path::new(&row.2).parent() {
+        if let Ok(entries) = std::fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        resource_roots.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    resource_roots.sort();
 
     let acct = Accountant::from_conn(conn, engine.project_id(), engine.session_id());
     let tokens = (content.len() as u64) / 4;
@@ -150,7 +166,8 @@ pub fn tool_fetch_skill_with_conn(
         "description": row.3,
         "tags": row.4,
         "version": row.5,
-        "content": content
+        "content": content,
+        "resource_roots": resource_roots
     }))
 }
 

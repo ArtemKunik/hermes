@@ -26,7 +26,13 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "hermes_index",
             "description": "Re-index the project files into the knowledge graph. Run after adding or changing files.",
-            "inputSchema": { "type": "object", "properties": {} }
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project_root": { "type": "string", "description": "Optional repository root path to index" },
+                    "repo_root": { "type": "string", "description": "Optional repository root path to index (alias for project_root)" }
+                }
+            }
         }),
         json!({
             "name": "hermes_backfill",

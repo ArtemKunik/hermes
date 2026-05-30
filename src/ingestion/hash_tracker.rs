@@ -8,8 +8,7 @@ use std::sync::{Arc, Mutex};
 const INDEX_HASH_VERSION: &str = "index-v2";
 
 pub struct HashTracker<'a> {
-    db: &'a Arc<Mutex<Connection>>,
-    project_id: &'a str,
+    graph: &'a crate::graph::KnowledgeGraph,
 }
 
 pub fn normalize_logical_path(path: &str) -> String {
@@ -17,20 +16,21 @@ pub fn normalize_logical_path(path: &str) -> String {
 }
 
 impl<'a> HashTracker<'a> {
-    pub fn new(db: &'a Arc<Mutex<Connection>>, project_id: &'a str) -> Self {
-        Self { db, project_id }
+    pub fn new(graph: &'a crate::graph::KnowledgeGraph) -> Self {
+        Self { graph }
     }
 
     pub fn is_unchanged(&self, file_path: &str) -> Result<bool> {
         let file_path = normalize_logical_path(file_path);
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let stored_hash: Option<String> = conn
-            .query_row(
-                "SELECT content_hash FROM file_hashes WHERE file_path = ?1 AND project_id = ?2",
-                params![file_path, self.project_id],
-                |row| row.get(0),
-            )
-            .ok();
+        let stored_hash: Option<String> = self.graph.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT content_hash FROM file_hashes WHERE file_path = ?1 AND project_id = ?2",
+                    params![file_path, self.graph.project_id()],
+                    |row| row.get(0),
+                )
+                .ok())
+        })?;
 
         let Some(stored) = stored_hash else {
             return Ok(false);
@@ -48,19 +48,20 @@ impl<'a> HashTracker<'a> {
     /// Returns a map of `file_path → content_hash`. Callers can then classify
     /// changed vs unchanged files entirely in memory without holding the Mutex.
     pub fn load_all_hashes(&self) -> Result<std::collections::HashMap<String, String>> {
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let mut stmt = conn.prepare(
-            "SELECT file_path, content_hash FROM file_hashes WHERE project_id = ?1",
-        )?;
-        let rows = stmt
-            .query_map(params![self.project_id], |row| {
-                Ok((
-                    normalize_logical_path(&row.get::<_, String>(0)?),
-                    row.get::<_, String>(1)?,
-                ))
-            })?
-            .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
-        Ok(rows)
+        self.graph.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT file_path, content_hash FROM file_hashes WHERE project_id = ?1",
+            )?;
+            let rows = stmt
+                .query_map(params![self.graph.project_id()], |row| {
+                    Ok((
+                        normalize_logical_path(&row.get::<_, String>(0)?),
+                        row.get::<_, String>(1)?,
+                    ))
+                })?
+                .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+            Ok(rows)
+        })
     }
 
     pub fn update_hash(&self, file_path: &str, actual_path: &Path) -> Result<()> {
@@ -68,40 +69,43 @@ impl<'a> HashTracker<'a> {
         let raw_bytes = std::fs::read(actual_path)?;
         let content = String::from_utf8_lossy(&raw_bytes).into_owned();
         let hash = compute_hash(&content);
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        conn.execute(
-            "INSERT OR REPLACE INTO file_hashes (file_path, project_id, content_hash, indexed_at)
-             VALUES (?1, ?2, ?3, datetime('now'))",
-            params![file_path, self.project_id, hash],
-        )?;
-        Ok(())
+        self.graph.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO file_hashes (file_path, project_id, content_hash, indexed_at)
+                 VALUES (?1, ?2, ?3, datetime('now'))",
+                params![file_path, self.graph.project_id(), hash],
+            )?;
+            Ok(())
+        })
     }
 
     /// Task 2.2: Returns true if the chunk's content hash matches what is stored.
     /// `chunk_key` is a stable identifier combining file_path + chunk name.
     pub fn is_chunk_unchanged(&self, chunk_key: &str, current_hash: &str) -> Result<bool> {
         let chunk_key = normalize_logical_path(chunk_key);
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        let stored: Option<String> = conn
-            .query_row(
-                "SELECT content_hash FROM file_hashes WHERE file_path = ?1 AND project_id = ?2",
-                params![chunk_key, self.project_id],
-                |row| row.get(0),
-            )
-            .ok();
+        let stored: Option<String> = self.graph.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT content_hash FROM file_hashes WHERE file_path = ?1 AND project_id = ?2",
+                    params![chunk_key, self.graph.project_id()],
+                    |row| row.get(0),
+                )
+                .ok())
+        })?;
         Ok(stored.as_deref() == Some(current_hash))
     }
 
     /// Task 2.2: Persist the chunk hash so subsequent ingestion runs can skip unchanged chunks.
     pub fn update_chunk_hash(&self, chunk_key: &str, hash: &str) -> Result<()> {
         let chunk_key = normalize_logical_path(chunk_key);
-        let conn = self.db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        conn.execute(
-            "INSERT OR REPLACE INTO file_hashes (file_path, project_id, content_hash, indexed_at)
-             VALUES (?1, ?2, ?3, datetime('now'))",
-            params![chunk_key, self.project_id, hash],
-        )?;
-        Ok(())
+        self.graph.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO file_hashes (file_path, project_id, content_hash, indexed_at)
+                 VALUES (?1, ?2, ?3, datetime('now'))",
+                params![chunk_key, self.graph.project_id(), hash],
+            )?;
+            Ok(())
+        })
     }
 }
 
@@ -164,8 +168,10 @@ mod tests {
     #[test]
     fn test_chunk_unchanged_returns_false_when_not_stored() {
         use crate::HermesEngine;
+        use crate::graph::KnowledgeGraph;
         let engine = HermesEngine::in_memory("chunk-test").unwrap();
-        let tracker = HashTracker::new(engine.db(), "chunk-test");
+        let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+        let tracker = HashTracker::new(&graph);
         let result = tracker
             .is_chunk_unchanged("path/to/file.rs::fn_name", "abc123")
             .unwrap();
@@ -175,8 +181,10 @@ mod tests {
     #[test]
     fn test_chunk_unchanged_returns_true_after_store() {
         use crate::HermesEngine;
+        use crate::graph::KnowledgeGraph;
         let engine = HermesEngine::in_memory("chunk-test2").unwrap();
-        let tracker = HashTracker::new(engine.db(), "chunk-test2");
+        let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+        let tracker = HashTracker::new(&graph);
         let key = "path/to/file.rs::fn_main";
         let hash = compute_hash("fn main() { println!(\"hello\"); }");
         tracker.update_chunk_hash(key, &hash).unwrap();
@@ -186,8 +194,10 @@ mod tests {
     #[test]
     fn load_all_hashes_returns_empty_for_fresh_project() {
         use crate::HermesEngine;
+        use crate::graph::KnowledgeGraph;
         let engine = HermesEngine::in_memory("load-all-empty").unwrap();
-        let tracker = HashTracker::new(engine.db(), "load-all-empty");
+        let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+        let tracker = HashTracker::new(&graph);
         let hashes = tracker.load_all_hashes().unwrap();
         assert!(hashes.is_empty());
     }
@@ -195,8 +205,10 @@ mod tests {
     #[test]
     fn load_all_hashes_returns_stored_entries() {
         use crate::HermesEngine;
+        use crate::graph::KnowledgeGraph;
         let engine = HermesEngine::in_memory("load-all-entries").unwrap();
-        let tracker = HashTracker::new(engine.db(), "load-all-entries");
+        let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+        let tracker = HashTracker::new(&graph);
 
         let temp = tempfile::tempdir().unwrap();
         let path_a = temp.path().join("a.rs");
@@ -216,9 +228,12 @@ mod tests {
     #[test]
     fn load_all_hashes_is_project_scoped() {
         use crate::HermesEngine;
+        use crate::graph::KnowledgeGraph;
         let engine = HermesEngine::in_memory("load-all-scope").unwrap();
-        let tracker_a = HashTracker::new(engine.db(), "project-a");
-        let tracker_b = HashTracker::new(engine.db(), "project-b");
+        let graph_a = KnowledgeGraph::new(engine.db().clone(), "project-a");
+        let graph_b = KnowledgeGraph::new(engine.db().clone(), "project-b");
+        let tracker_a = HashTracker::new(&graph_a);
+        let tracker_b = HashTracker::new(&graph_b);
 
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("file.rs");
@@ -235,8 +250,10 @@ mod tests {
     #[test]
     fn update_hash_stores_normalized_path_key() {
         use crate::HermesEngine;
+        use crate::graph::KnowledgeGraph;
         let engine = HermesEngine::in_memory("normalized-hash-key").unwrap();
-        let tracker = HashTracker::new(engine.db(), "normalized-hash-key");
+        let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+        let tracker = HashTracker::new(&graph);
 
         let temp = tempfile::tempdir().unwrap();
         let actual_path = temp.path().join("file.rs");
@@ -252,8 +269,10 @@ mod tests {
     #[test]
     fn chunk_hash_lookup_treats_slashes_and_backslashes_as_same_key() {
         use crate::HermesEngine;
+        use crate::graph::KnowledgeGraph;
         let engine = HermesEngine::in_memory("normalized-chunk-key").unwrap();
-        let tracker = HashTracker::new(engine.db(), "normalized-chunk-key");
+        let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+        let tracker = HashTracker::new(&graph);
         let hash = compute_hash("fn main() {}");
 
         tracker.update_chunk_hash(r"dir\file.rs::fn_main", &hash).unwrap();
@@ -266,8 +285,10 @@ mod tests {
     #[test]
     fn test_chunk_changed_returns_false_on_different_hash() {
         use crate::HermesEngine;
+        use crate::graph::KnowledgeGraph;
         let engine = HermesEngine::in_memory("chunk-test3").unwrap();
-        let tracker = HashTracker::new(engine.db(), "chunk-test3");
+        let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+        let tracker = HashTracker::new(&graph);
         let key = "path/to/file.rs::fn_foo";
         let old_hash = compute_hash("fn foo() {}");
         let new_hash = compute_hash("fn foo() { do_something(); }");

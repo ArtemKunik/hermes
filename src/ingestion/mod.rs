@@ -33,7 +33,7 @@ impl<'a> IngestionPipeline<'a> {
     pub fn new(graph: &'a KnowledgeGraph) -> Self {
         Self {
             graph,
-            hash_tracker: hash_tracker::HashTracker::new(graph.db(), graph.project_id()),
+            hash_tracker: hash_tracker::HashTracker::new(graph),
             enricher: None,
             env_scanner: env_scanner::EnvScanner::new().unwrap(),
         }
@@ -85,10 +85,10 @@ impl<'a> IngestionPipeline<'a> {
             }
         }
 
-        {
-            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.graph.with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE")?;
-        }
+            Ok(())
+        })?;
 
         // Purge every stale node (and its FTS entry) for files that are about
         // to be re-indexed.  Without this, each indexing run for a changed file
@@ -128,9 +128,10 @@ impl<'a> IngestionPipeline<'a> {
 
         {
             let discovered = env_vars_acc.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-            self.env_scanner
-                .populate_registry(&conn, self.graph.project_id(), &discovered)?;
+            self.graph.with_conn(|conn| {
+                self.env_scanner
+                    .populate_registry(conn, self.graph.project_id(), &discovered)
+            })?;
             info!(
                 count = discovered.len(),
                 "Populated config_registry with discovered environment variables"
@@ -166,14 +167,16 @@ impl<'a> IngestionPipeline<'a> {
             }
         }
 
-        {
-            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.graph.with_conn(|conn| {
             conn.execute_batch("COMMIT")?;
-        }
+            Ok(())
+        })?;
 
         if report.indexed > 0 {
-            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+            let _ = self.graph.with_conn(|conn| {
+                let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+                Ok(())
+            });
         }
 
         Ok(report)
@@ -190,8 +193,10 @@ impl<'a> IngestionPipeline<'a> {
 
     fn scan_and_populate_skills(&self, project_root: &Path) -> Result<()> {
         let skills = skill_scanner::discover_skills(project_root);
-        let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        skill_scanner::populate_skills(&conn, self.graph.project_id(), &skills)?;
+        self.graph.with_conn(|conn| {
+            skill_scanner::populate_skills(conn, self.graph.project_id(), &skills)?;
+            Ok(())
+        })?;
         info!(count = skills.len(), "Indexed skill assets");
         Ok(())
     }

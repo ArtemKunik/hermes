@@ -129,24 +129,33 @@ pub(crate) fn migrate_temporal_facts_extended(conn: &Connection) {
     );
 }
 
-/// Idempotent: create `dismissed_items` table for tracking dismissed findings, skill candidates, and violations.
-pub(crate) fn create_dismissed_items_table(conn: &Connection) {
+/// Idempotent: create the `proposals` table for ideation storage.
+pub(crate) fn create_proposals_table(conn: &Connection) {
     let _ = conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS dismissed_items (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        "CREATE TABLE IF NOT EXISTS proposals (
+            id              TEXT PRIMARY KEY,
             project_id      TEXT NOT NULL,
-            item_type       TEXT NOT NULL CHECK(item_type IN ('finding', 'skill_candidate', 'violation')),
-            item_id         TEXT NOT NULL,
-            reason          TEXT,
-            dismissed_by    TEXT NOT NULL DEFAULT 'system',
-            dismissed_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            title           TEXT NOT NULL,
+            description     TEXT,
+            source          TEXT NOT NULL DEFAULT 'ideation',
+            priority        INTEGER NOT NULL DEFAULT 5,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            evidence_ids    TEXT,
+            why_it_matters  TEXT,
+            next_step       TEXT,
+            rejected_reason TEXT,
+            mission_id      TEXT,
+            repo            TEXT,
+            fingerprint     TEXT,
             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-            UNIQUE(item_type, item_id)
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_dismissed_project
-            ON dismissed_items(project_id);
-        CREATE INDEX IF NOT EXISTS idx_dismissed_type_item
-            ON dismissed_items(item_type, item_id);",
+        CREATE INDEX IF NOT EXISTS idx_proposals_project
+            ON proposals(project_id);
+        CREATE INDEX IF NOT EXISTS idx_proposals_status
+            ON proposals(project_id, status);
+        CREATE INDEX IF NOT EXISTS idx_proposals_fingerprint
+            ON proposals(fingerprint);",
     );
 }
 

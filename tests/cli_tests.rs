@@ -9,21 +9,21 @@ use predicates::str::contains;
 fn cli_validate_env_known() {
     // the in-memory database used during tests starts empty, so validate-env on any
     // name should return valid:false (no registry entries yet) without crashing.
-    let mut cmd = cargo_bin_cmd!("Hermes");
+    let mut cmd = cargo_bin_cmd!("hermes");
     cmd.arg("validate-env").arg("FOO_BAR");
     cmd.assert().success().stdout(contains("\"valid\": false"));
 }
 
 #[test]
 fn cli_validate_env_usage_error() {
-    let mut cmd = cargo_bin_cmd!("Hermes");
+    let mut cmd = cargo_bin_cmd!("hermes");
     cmd.arg("validate-env");
     cmd.assert().failure().stderr(contains("usage"));
 }
 
 #[test]
 fn cli_validate_symbols_usage() {
-    let mut cmd = cargo_bin_cmd!("Hermes");
+    let mut cmd = cargo_bin_cmd!("hermes");
     cmd.arg("validate-symbols");
     cmd.assert().failure().stderr(contains("usage"));
 }
@@ -32,7 +32,7 @@ fn cli_validate_symbols_usage() {
 fn cli_validate_symbols_unknown() {
     // run against a fresh in-memory engine, so no symbols exist; result should
     // mark the given symbol as invalid.
-    let mut cmd = cargo_bin_cmd!("Hermes");
+    let mut cmd = cargo_bin_cmd!("hermes");
     cmd.arg("validate-symbols").arg("does_not_exist");
     cmd.assert()
         .success()
@@ -42,14 +42,14 @@ fn cli_validate_symbols_unknown() {
 
 #[test]
 fn cli_scan_duplicates_usage() {
-    let mut cmd = cargo_bin_cmd!("Hermes");
+    let mut cmd = cargo_bin_cmd!("hermes");
     cmd.arg("scan-duplicates");
     cmd.assert().failure().stderr(contains("usage"));
 }
 
 #[test]
 fn cli_scan_duplicates_basic() {
-    let mut cmd = cargo_bin_cmd!("Hermes");
+    let mut cmd = cargo_bin_cmd!("hermes");
     cmd.arg("scan-duplicates").arg("some_signature");
     cmd.assert()
         .success()
@@ -58,14 +58,14 @@ fn cli_scan_duplicates_basic() {
 
 #[test]
 fn cli_prepare_commit_message_usage_error() {
-    let mut cmd = cargo_bin_cmd!("Hermes");
+    let mut cmd = cargo_bin_cmd!("hermes");
     cmd.arg("prepare-commit-message");
     cmd.assert().failure().stderr(contains("usage"));
 }
 
 #[test]
 fn cli_prepare_commit_message_infers_pipeline_from_changes() {
-    let mut cmd = cargo_bin_cmd!("Hermes");
+    let mut cmd = cargo_bin_cmd!("hermes");
     cmd.arg("prepare-commit-message")
         .arg("fix(ccterm): keep SRE build context")
         .arg("--task")

@@ -29,6 +29,8 @@ pub mod mcp_lint_scope;
 pub mod mcp_memory;
 pub mod mission;
 pub mod mcp_missions;
+pub mod proposal;
+pub mod mcp_proposals;
 pub mod mcp_quality;
 pub mod mcp_quality_drift;
 pub mod mcp_server;

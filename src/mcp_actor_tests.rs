@@ -132,3 +132,27 @@ fn actor_keeps_followup_calls_responsive_after_timeout() {
         "expected responsive follow-up call after timeout, elapsed={elapsed:?}"
     );
 }
+
+#[test]
+fn actor_index_accepts_custom_project_root() {
+    let _guard = env_lock().lock().expect("env lock");
+    let _openai_key = EnvVarGuard::clear("OPENAI_API_KEY");
+    let _gemini_key = EnvVarGuard::clear("GEMINI_API_KEY");
+    let _lmstudio_url = EnvVarGuard::set("LMSTUDIO_EMBED_URL", "http://127.0.0.1:9999");
+    let _timeout = EnvVarGuard::clear("HERMES_TOOL_TIMEOUT_MS");
+    let _delay = EnvVarGuard::clear("HERMES_TEST_TOOL_DELAY_MS");
+    let engine = HermesEngine::in_memory("actor-index-custom").expect("engine");
+    let default_root = tempfile::tempdir().expect("tempdir");
+    let custom_root = tempfile::tempdir().expect("tempdir");
+    
+    std::fs::write(custom_root.path().join("main.rs"), "fn main() {}\n").expect("seed file");
+    
+    let actor = ToolActor::start(engine, default_root.path().to_path_buf());
+    
+    let output = actor
+        .call_tool("hermes_index", &json!({ "project_root": custom_root.path().to_str().unwrap() }))
+        .expect("index should accept custom project_root");
+    let payload: serde_json::Value = serde_json::from_str(&output).expect("valid json");
+    
+    assert_eq!(payload["total_files"], 1);
+}

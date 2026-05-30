@@ -34,30 +34,31 @@ pub fn build_test_edges(graph: &KnowledgeGraph, _project_root: &Path) -> Result<
 
 /// Return (node_id, file_path) for all file nodes that look like test files.
 fn find_test_files(graph: &KnowledgeGraph) -> Result<Vec<(String, String)>> {
-    let conn = graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-    let mut stmt = conn.prepare(
-        "SELECT id, file_path FROM nodes
-         WHERE project_id = ?1
-           AND node_type = 'file'
-           AND file_path IS NOT NULL
-           AND (file_path LIKE '%_test.rs'
-                OR file_path LIKE '%.test.tsx'
-                OR file_path LIKE '%.test.ts'
-                OR file_path LIKE '%.spec.ts'
-                OR file_path LIKE '%.spec.tsx'
-                OR file_path LIKE '%/tests/%'
-                OR file_path LIKE '%\\tests\\%')",
-    )?;
-    let results: Vec<(String, String)> = stmt
-        .query_map(params![graph.project_id()], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-            ))
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
-    Ok(results)
+    graph.with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id, file_path FROM nodes
+             WHERE project_id = ?1
+               AND node_type = 'file'
+               AND file_path IS NOT NULL
+               AND (file_path LIKE '%_test.rs'
+                    OR file_path LIKE '%.test.tsx'
+                    OR file_path LIKE '%.test.ts'
+                    OR file_path LIKE '%.spec.ts'
+                    OR file_path LIKE '%.spec.tsx'
+                    OR file_path LIKE '%/tests/%'
+                    OR file_path LIKE '%\\tests\\%')",
+        )?;
+        let results: Vec<(String, String)> = stmt
+            .query_map(params![graph.project_id()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(results)
+    })
 }
 
 /// Given a test file path, find likely implementation node IDs.
@@ -104,44 +105,46 @@ fn impl_by_name(graph: &KnowledgeGraph, test_path: &str) -> Result<Option<String
         return Ok(None);
     };
 
-    let conn = graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-    let mut stmt = conn.prepare(
-        "SELECT id FROM nodes
-         WHERE project_id = ?1
-           AND node_type = 'file'
-           AND file_path IS NOT NULL
-           AND file_path NOT LIKE '%_test.rs'
-           AND file_path NOT LIKE '%.test.%'
-           AND file_path NOT LIKE '%.spec.%'
-           AND (name = ?2 OR file_path LIKE '%/' || ?2 || '.rs'
-                OR file_path LIKE '%/' || ?2 || '.ts'
-                OR file_path LIKE '%/' || ?2 || '.tsx')
-         LIMIT 1",
-    )?;
-    let result: Option<String> = stmt
-        .query_row(params![graph.project_id(), base_name], |row| row.get(0))
-        .ok();
-    Ok(result)
+    graph.with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id FROM nodes
+             WHERE project_id = ?1
+               AND node_type = 'file'
+               AND file_path IS NOT NULL
+               AND file_path NOT LIKE '%_test.rs'
+               AND file_path NOT LIKE '%.test.%'
+               AND file_path NOT LIKE '%.spec.%'
+               AND (name = ?2 OR file_path LIKE '%/' || ?2 || '.rs'
+                    OR file_path LIKE '%/' || ?2 || '.ts'
+                    OR file_path LIKE '%/' || ?2 || '.tsx')
+             LIMIT 1",
+        )?;
+        let result: Option<String> = stmt
+            .query_row(params![graph.project_id(), base_name], |row| row.get(0))
+            .ok();
+        Ok(result)
+    })
 }
 
 fn impl_by_imports(graph: &KnowledgeGraph, test_path: &str) -> Result<Vec<String>> {
-    let conn = graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-    let mut stmt = conn.prepare(
-        "SELECT e.target_id FROM edges e
-         JOIN nodes src ON src.id = e.source_id
-         JOIN nodes tgt ON tgt.id = e.target_id
-         WHERE src.project_id = ?1
-           AND src.file_path = ?2
-           AND e.edge_type = 'imports'
-           AND tgt.node_type = 'file'
-           AND tgt.file_path NOT LIKE '%_test.rs'
-           AND tgt.file_path NOT LIKE '%.test.%'",
-    )?;
-    let results: Vec<String> = stmt
-        .query_map(params![graph.project_id(), test_path], |row| row.get(0))?
-        .filter_map(|r| r.ok())
-        .collect();
-    Ok(results)
+    graph.with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT e.target_id FROM edges e
+             JOIN nodes src ON src.id = e.source_id
+             JOIN nodes tgt ON tgt.id = e.target_id
+             WHERE src.project_id = ?1
+               AND src.file_path = ?2
+               AND e.edge_type = 'imports'
+               AND tgt.node_type = 'file'
+               AND tgt.file_path NOT LIKE '%_test.rs'
+               AND tgt.file_path NOT LIKE '%.test.%'",
+        )?;
+        let results: Vec<String> = stmt
+            .query_map(params![graph.project_id(), test_path], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(results)
+    })
 }
 
 #[cfg(test)]

@@ -59,6 +59,11 @@ const STANDARD_TOOLS: &[&str] = &[
     "hermes_mission_event",        // append mission log event
     "hermes_mission_status",       // get mission state
     "hermes_mission_list",         // list missions
+    "hermes_proposal_create",      // batch-create proposals
+    "hermes_proposal_list",        // list proposals with filters
+    "hermes_proposal_update",      // update proposal fields
+    "hermes_proposal_reject",      // reject proposal
+    "hermes_proposal_approve",     // approve proposal (creates mission)
 ];
 
 // ---------------------------------------------------------------------------

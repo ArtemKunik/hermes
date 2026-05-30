@@ -9,6 +9,7 @@
 // Duplicate-detection / search-miss tools live in mcp_tools_analysis.rs.
 
 use anyhow::Result;
+use rusqlite::Connection;
 use serde_json::json;
 use std::path::Path;
 use std::time::Duration;
@@ -91,7 +92,7 @@ pub fn tool_fetch(engine: &HermesEngine, node_id: &str) -> Result<String> {
     Ok(serde_json::to_string_pretty(&resp)?)
 }
 
-pub fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> {
+pub fn tool_index(engine: &HermesEngine, conn: &Connection, project_root: &Path) -> Result<String> {
     let _index_lock = match crate::index_lock::try_acquire_index_lock(project_root)? {
         crate::index_lock::LockAcquisition::Acquired(lock) => lock,
         crate::index_lock::LockAcquisition::Busy(_) => {
@@ -114,10 +115,9 @@ pub fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> 
         std::process::id()
     );
 
-    #[cfg(test)]
-    maybe_sleep_for_test_index_delay();
 
-    let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+
+    let graph = KnowledgeGraph::from_conn(conn, engine.project_id());
     let pipeline = IngestionPipeline::new(&graph);
     let report = pipeline.ingest_directory(project_root)?;
     engine.invalidate_search_cache();
@@ -214,44 +214,4 @@ pub fn tool_reject_skill_candidate(_engine: &HermesEngine, name: &str) -> Result
 
 pub fn tool_apply_proposal(_engine: &HermesEngine, filename: &str) -> Result<String> {
     proxy_to_mastermind(_engine, &format!("/consolidator/apply-proposal/{filename}"))
-}
-
-#[cfg(test)]
-fn maybe_sleep_for_test_index_delay() {
-    let delay_ms = std::env::var("HERMES_TEST_INDEX_DELAY_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(0);
-
-    if delay_ms > 0 {
-        std::thread::sleep(Duration::from_millis(delay_ms));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::HermesEngine;
-
-    #[test]
-    fn test_search_with_goal_hint_runs() {
-        let engine = HermesEngine::in_memory("test-goal").unwrap();
-        // Should not error even on empty graph
-        let result = tool_search(&engine, "anything", Some("error handling"));
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_index_returns_busy_when_lock_exists() {
-        let temp = tempfile::tempdir().unwrap();
-        std::fs::write(temp.path().join("sample.rs"), "fn sample() {}").unwrap();
-        std::fs::write(temp.path().join(".hermes.index.lock"), "locked").unwrap();
-
-        let engine = HermesEngine::in_memory("test-index-busy").unwrap();
-        let result: serde_json::Value =
-            serde_json::from_str(&tool_index(&engine, temp.path()).unwrap()).unwrap();
-
-        assert_eq!(result["status"], "busy");
-        assert_eq!(result["non_blocking"], true);
-    }
 }

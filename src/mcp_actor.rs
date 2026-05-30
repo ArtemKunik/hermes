@@ -138,12 +138,28 @@ fn actor_loop(engine: HermesEngine, project_root: PathBuf, rx: Receiver<ActorMes
                 let engine = engine.clone();
                 let project_root = project_root.clone();
                 thread::spawn(move || {
-                    if let Err(err) = mcp_tools::tool_index(&engine, &project_root) {
+                    #[cfg(test)]
+                    maybe_sleep_for_test_index_delay();
+
+                    let conn = engine.db().lock().unwrap_or_else(|e| e.into_inner());
+                    if let Err(err) = mcp_tools::tool_index(&engine, &conn, &project_root) {
                         eprintln!("[hermes] auto-index actor execution failed: {err}");
                     }
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+fn maybe_sleep_for_test_index_delay() {
+    let delay_ms = std::env::var("HERMES_TEST_INDEX_DELAY_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    if delay_ms > 0 {
+        thread::sleep(Duration::from_millis(delay_ms));
     }
 }
 

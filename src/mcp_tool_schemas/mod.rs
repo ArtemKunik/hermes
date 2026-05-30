@@ -2,6 +2,7 @@ pub mod arch;
 pub mod core;
 pub mod memory;
 pub mod missions;
+pub mod proposals;
 pub mod quality;
 pub mod slow_loop;
 
@@ -12,6 +13,7 @@ pub fn tools_list() -> Value {
     tools.extend(core::tools());
     tools.extend(memory::tools());
     tools.extend(missions::tools());
+    tools.extend(proposals::tools());
     tools.extend(slow_loop::tools());
     tools.extend(quality::tools());
     tools.extend(arch::tools());
