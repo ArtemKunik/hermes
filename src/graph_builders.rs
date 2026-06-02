@@ -56,11 +56,6 @@ impl NodeBuilder {
         self
     }
 
-    pub fn content_hash(mut self, hash: &str) -> Self {
-        self.node.content_hash = Some(hash.to_string());
-        self
-    }
-
     pub fn content_tokens(mut self, tokens: u64) -> Self {
         self.node.content_tokens = Some(tokens);
         self

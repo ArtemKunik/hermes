@@ -4,7 +4,8 @@ pub mod chunker;
 pub mod crawler;
 pub mod env_scanner;
 pub mod file_ops;
-pub mod hash_tracker;
+#[cfg(feature = "ast")]
+pub mod lang;
 pub mod llm_enricher;
 pub mod skill_scanner;
 pub mod test_edge_builder;
@@ -22,9 +23,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
+/// Normalize path separators to forward slashes for consistent storage.
+pub fn normalize_logical_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 pub struct IngestionPipeline<'a> {
     graph: &'a KnowledgeGraph,
-    hash_tracker: hash_tracker::HashTracker<'a>,
     enricher: Option<Arc<LlmEnricher>>,
     env_scanner: env_scanner::EnvScanner,
 }
@@ -33,7 +38,6 @@ impl<'a> IngestionPipeline<'a> {
     pub fn new(graph: &'a KnowledgeGraph) -> Self {
         Self {
             graph,
-            hash_tracker: hash_tracker::HashTracker::new(graph),
             enricher: None,
             env_scanner: env_scanner::EnvScanner::new().unwrap(),
         }
@@ -49,7 +53,7 @@ impl<'a> IngestionPipeline<'a> {
 
         let crawled_paths: HashSet<String> = files
             .iter()
-            .map(|p| hash_tracker::normalize_logical_path(&p.to_string_lossy()))
+            .map(|p| normalize_logical_path(&p.to_string_lossy()))
             .collect();
 
         self.scan_and_populate_skills(dir_path)?;
@@ -59,42 +63,24 @@ impl<'a> IngestionPipeline<'a> {
             ..Default::default()
         };
 
-        // Load all stored hashes in one query rather than one query per file.
-        // This replaces N Mutex acquisitions (one per file) with a single acquisition,
-        // eliminating the contention that caused tool calls to block for >30s on Windows.
-        let stored_hashes = self.hash_tracker.load_all_hashes()?;
+        // No hash-based skipping — always re-ingest all files.
+        // Hash matching caused stale data issues and was removed.
+        let to_ingest: Vec<&PathBuf> = files.iter().collect();
 
-        let mut to_ingest: Vec<&PathBuf> = Vec::new();
-        for file_path in &files {
-            let path_str = hash_tracker::normalize_logical_path(&file_path.to_string_lossy());
-            let is_unchanged = if let Some(stored) = stored_hashes.get(&path_str) {
-                match std::fs::read(file_path) {
-                    Ok(raw) => {
-                        let content = String::from_utf8_lossy(&raw).into_owned();
-                        hash_tracker::compute_hash(&content) == *stored
-                    }
-                    Err(_) => false,
-                }
-            } else {
-                false
-            };
-            if is_unchanged {
-                report.skipped += 1;
-            } else {
-                to_ingest.push(file_path);
-            }
-        }
-
-        self.graph.with_conn(|conn| {
+        {
+            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
             conn.execute_batch("BEGIN IMMEDIATE")?;
-            Ok(())
-        })?;
+        }
 
         // Purge every stale node (and its FTS entry) for files that are about
         // to be re-indexed.  Without this, each indexing run for a changed file
         // appends new nodes while old ones accumulate, bloating the DB unboundedly.
         for file_path in &to_ingest {
-            let path_str = hash_tracker::normalize_logical_path(&file_path.to_string_lossy());
+            let path_str = normalize_logical_path(&file_path.to_string_lossy());
+            {
+                let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+                let _ = crate::symbol_index::clear_file_symbols(&conn, self.graph.project_id(), &path_str);
+            }
             let _ = self.graph.delete_nodes_for_file(&path_str);
         }
 
@@ -105,7 +91,7 @@ impl<'a> IngestionPipeline<'a> {
         let ingest_results: Vec<(String, Result<usize>)> = to_ingest
             .par_iter()
             .map(|file_path| {
-                let path_str = hash_tracker::normalize_logical_path(&file_path.to_string_lossy());
+                let path_str = normalize_logical_path(&file_path.to_string_lossy());
                 let result = self.ingest_file(file_path, &env_acc);
                 (path_str, result)
             })
@@ -116,8 +102,6 @@ impl<'a> IngestionPipeline<'a> {
                 Ok(count) => {
                     report.indexed += 1;
                     report.nodes_created += count;
-                    let p = PathBuf::from(&path_str);
-                    self.hash_tracker.update_hash(&path_str, &p)?;
                 }
                 Err(e) => {
                     info!(path = %path_str, error = %e, "Failed to ingest file");
@@ -128,10 +112,9 @@ impl<'a> IngestionPipeline<'a> {
 
         {
             let discovered = env_vars_acc.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-            self.graph.with_conn(|conn| {
-                self.env_scanner
-                    .populate_registry(conn, self.graph.project_id(), &discovered)
-            })?;
+            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            self.env_scanner
+                .populate_registry(&conn, self.graph.project_id(), &discovered)?;
             info!(
                 count = discovered.len(),
                 "Populated config_registry with discovered environment variables"
@@ -148,7 +131,7 @@ impl<'a> IngestionPipeline<'a> {
                     if let Ok(raw) = std::fs::read(file_path) {
                         let content = String::from_utf8_lossy(&raw);
                         let path_str =
-                            hash_tracker::normalize_logical_path(&file_path.to_string_lossy());
+                            normalize_logical_path(&file_path.to_string_lossy());
                         let file_node_id = self
                             .graph
                             .create_node_builder()
@@ -165,18 +148,22 @@ impl<'a> IngestionPipeline<'a> {
                     }
                 }
             }
+
+            // Recompute blast-radius scores after xref edges are added.
+            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if let Ok(count) = crate::blast_radius::compute_all_blast_scores(&conn, self.graph.project_id()) {
+                info!(count, "Recomputed blast-radius scores");
+            }
         }
 
-        self.graph.with_conn(|conn| {
+        {
+            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
             conn.execute_batch("COMMIT")?;
-            Ok(())
-        })?;
+        }
 
         if report.indexed > 0 {
-            let _ = self.graph.with_conn(|conn| {
-                let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
-                Ok(())
-            });
+            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
         }
 
         Ok(report)
@@ -185,6 +172,10 @@ impl<'a> IngestionPipeline<'a> {
     fn cleanup_stale_nodes(&self, crawled_paths: &HashSet<String>) -> Result<()> {
         let db_paths = self.graph.get_all_file_paths()?;
         for stale_path in db_paths.difference(crawled_paths) {
+            {
+                let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+                let _ = crate::symbol_index::clear_file_symbols(&conn, self.graph.project_id(), stale_path);
+            }
             self.graph.delete_nodes_for_file(stale_path)?;
             info!(path = %stale_path, "Removed stale nodes for deleted file");
         }
@@ -193,17 +184,16 @@ impl<'a> IngestionPipeline<'a> {
 
     fn scan_and_populate_skills(&self, project_root: &Path) -> Result<()> {
         let skills = skill_scanner::discover_skills(project_root);
-        self.graph.with_conn(|conn| {
-            skill_scanner::populate_skills(conn, self.graph.project_id(), &skills)?;
-            Ok(())
-        })?;
+        let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        skill_scanner::populate_skills(&conn, self.graph.project_id(), &skills)?;
         info!(count = skills.len(), "Indexed skill assets");
         Ok(())
     }
 
     #[cfg(feature = "ast")]
     fn is_ast_supported_file(&self, file_path: &Path) -> bool {
-        file_path.extension().and_then(|s| s.to_str()) == Some("rs")
+        let ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        lang::get_extractor(ext).is_some()
     }
 
     #[cfg(feature = "ast")]
@@ -259,7 +249,6 @@ impl<'a> IngestionPipeline<'a> {
     ) -> Result<usize> {
         file_ops::ingest_file_inner(
             self.graph,
-            &self.hash_tracker,
             self.enricher.as_ref(),
             &self.env_scanner,
             file_path,

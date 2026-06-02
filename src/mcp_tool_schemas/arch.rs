@@ -60,13 +60,35 @@ pub fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "hermes_impact_analysis",
-            "description": "Graph-Based Impact Analysis: Traces the knowledge graph to find all downstream symbols and files that depend on a specific symbol. Helps determine the 'blast radius' of a change.",
+            "description": "Graph-Based Impact Analysis: Traces the knowledge graph to find all downstream symbols and files that depend on a specific symbol. Returns affected dependencies plus pre-computed blast-radius score (direct/transitive dependents, risk level) for the queried symbol.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "symbol_name": { "type": "string", "description": "The name of the symbol to analyze (e.g. 'User', 'fetch_data')" }
                 },
                 "required": ["symbol_name"]
+            }
+        }),
+        json!({
+            "name": "hermes_blast_score",
+            "description": "Look up the pre-computed blast-radius score for a specific symbol name or file path. Returns direct and transitive dependency counts, blast score, and risk level (HIGH/MEDIUM/LOW). Scores are computed during indexing via BFS up to depth 3 following Calls/Imports/Uses/DependsOn/Implements edges.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Symbol name or file path to query (e.g. 'verify_token' or 'src/auth.rs')" }
+                },
+                "required": ["query"]
+            }
+        }),
+        json!({
+            "name": "hermes_high_blast",
+            "description": "Return top-N files and symbols ranked by blast score above a threshold. Use to identify the highest-impact areas of the codebase before planning refactoring or architectural changes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "threshold": { "type": "number", "description": "Minimum blast score to include (default: 1.0)", "default": 1.0 },
+                    "limit":     { "type": "integer", "description": "Maximum results to return (default: 20)", "default": 20 }
+                }
             }
         }),
         json!({

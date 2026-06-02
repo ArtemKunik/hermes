@@ -141,8 +141,7 @@ fn actor_loop(engine: HermesEngine, project_root: PathBuf, rx: Receiver<ActorMes
                     #[cfg(test)]
                     maybe_sleep_for_test_index_delay();
 
-                    let conn = engine.db().lock().unwrap_or_else(|e| e.into_inner());
-                    if let Err(err) = mcp_tools::tool_index(&engine, &conn, &project_root) {
+                    if let Err(err) = mcp_tools::tool_index(&engine, &project_root) {
                         eprintln!("[hermes] auto-index actor execution failed: {err}");
                     }
                 });

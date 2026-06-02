@@ -7,10 +7,15 @@ use hermes_engine::{
     ingestion::{llm_enricher::LlmEnricher, IngestionPipeline},
     search::{SearchEngine, SearchMode},
     temporal::{FactType, TemporalStore},
+    viz,
     weight::WeightStore,
     HermesEngine,
 };
 use std::path::Path;
+
+pub fn cmd_viz(engine: &HermesEngine, project_root: &Path, port: u16) -> Result<()> {
+    viz::server::run_viz_server(engine, project_root, port)
+}
 
 pub fn cmd_index(engine: &HermesEngine, project_root: &Path, enrich: bool) -> Result<()> {
     let _index_lock = match hermes_engine::index_lock::try_acquire_index_lock(project_root)? {

@@ -148,7 +148,7 @@ fn read_runtime_status(engine: &HermesEngine) -> RuntimeStatus {
 }
 
 fn inspect_index_status(project_root: &Path) -> IndexStatus {
-    let lock_path = project_root.join(".hermes.index.lock");
+    let lock_path = crate::index_lock::lock_file_path(project_root);
     if !lock_path.exists() {
         return IndexStatus::default();
     }
@@ -202,7 +202,7 @@ mod tests {
         {
             let conn = engine.db().lock().unwrap();
             conn.execute(
-                "INSERT INTO nodes (id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO nodes (id, project_id, name, node_type, file_path, start_line, end_line, summary) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 rusqlite::params![
                     "status-node-1",
                     engine.project_id(),
@@ -212,7 +212,6 @@ mod tests {
                     1,
                     1,
                     "fn main",
-                    "hash-1",
                 ],
             )
             .unwrap();
@@ -228,7 +227,7 @@ mod tests {
         let engine = HermesEngine::in_memory("status-lock").unwrap();
         let dir = tempfile::tempdir().unwrap();
 
-        let lock_path = dir.path().join(".hermes.index.lock");
+        let lock_path = crate::index_lock::lock_file_path(dir.path());
         std::fs::write(&lock_path, format!("pid={}", std::process::id())).unwrap();
         let result = tool_mcp_status(&engine, dir.path()).unwrap();
         assert_eq!(result["indexing"]["in_progress"], true);
@@ -240,7 +239,7 @@ mod tests {
         let engine = HermesEngine::in_memory("status-stale-lock").unwrap();
         let dir = tempfile::tempdir().unwrap();
 
-        let lock_path = dir.path().join(".hermes.index.lock");
+        let lock_path = crate::index_lock::lock_file_path(dir.path());
         std::fs::write(&lock_path, "pid=999999").unwrap();
 
         let result = tool_mcp_status(&engine, dir.path()).unwrap();

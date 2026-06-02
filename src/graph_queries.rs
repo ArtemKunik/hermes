@@ -12,10 +12,9 @@ impl KnowledgeGraph {
         self.with_conn(|conn| {
             let query_lower = query.to_lowercase();
 
-            // Prefix match: uses idx_nodes_name_lower for O(log n) lookup
             let prefix_pattern = format!("{}%", query_lower);
             let mut stmt = conn.prepare(
-                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type
+                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_tokens, object_type
                  FROM nodes WHERE project_id = ?1 AND LOWER(name) LIKE ?2",
             )?;
             let prefix_results: Vec<Node> = stmt
@@ -26,10 +25,9 @@ impl KnowledgeGraph {
                 return Ok(prefix_results);
             }
 
-            // Fallback: mid-string contains match
             let contains_pattern = format!("%{}%", query_lower);
             let mut stmt2 = conn.prepare(
-                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type
+                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_tokens, object_type
                  FROM nodes WHERE project_id = ?1 AND LOWER(name) LIKE ?2",
             )?;
             let results: Vec<Node> = stmt2
@@ -84,7 +82,7 @@ impl KnowledgeGraph {
     pub fn get_all_nodes(&self) -> Result<Vec<Node>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type
+                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_tokens, object_type
                  FROM nodes WHERE project_id = ?1",
             )?;
             let rows = stmt
@@ -97,7 +95,7 @@ impl KnowledgeGraph {
     pub fn fts_search(&self, query: &str, limit: usize) -> Result<Vec<(Node, f64)>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT n.id, n.project_id, n.name, n.node_type, n.file_path, n.start_line, n.end_line, n.summary, n.content_hash, n.content_tokens, n.object_type,
+                "SELECT n.id, n.project_id, n.name, n.node_type, n.file_path, n.start_line, n.end_line, n.summary, n.content_tokens, n.object_type,
                         bm25(fts_content) as rank
                  FROM fts_content f
                  JOIN nodes n ON n.id = f.node_id
@@ -107,7 +105,7 @@ impl KnowledgeGraph {
             )?;
             let rows = stmt
                 .query_map(params![query, self.project_id(), limit as i64], |row| {
-                    Ok((node_from_row(row)?, row.get::<_, f64>(11)?))
+                    Ok((node_from_row(row)?, row.get::<_, f64>(10)?))
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             Ok(rows)
@@ -125,9 +123,9 @@ pub(crate) fn node_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
         start_line: row.get(5)?,
         end_line: row.get(6)?,
         summary: row.get(7)?,
-        content_hash: row.get(8)?,
-        content_tokens: row.get::<_, Option<i64>>(9)?.map(|v| v as u64),
-        object_type: row.get(10)?,
+        content_hash: None,
+        content_tokens: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
+        object_type: row.get(9)?,
     })
 }
 
@@ -150,14 +148,14 @@ mod tests {
 
         let conn = engine.db().lock().unwrap();
         conn.execute(
-            "INSERT INTO file_hashes (file_path, project_id, content_hash, indexed_at)
-             VALUES (?1, ?2, 'abc', datetime('now'))",
+            "INSERT INTO file_hashes (file_path, project_id, indexed_at)
+             VALUES (?1, ?2, datetime('now'))",
             params!["test.rs", engine.project_id()],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO file_hashes (file_path, project_id, content_hash, indexed_at)
-             VALUES (?1, ?2, 'def', datetime('now'))",
+            "INSERT INTO file_hashes (file_path, project_id, indexed_at)
+             VALUES (?1, ?2, datetime('now'))",
             params!["test.rs::some_symbol", engine.project_id()],
         )
         .unwrap();

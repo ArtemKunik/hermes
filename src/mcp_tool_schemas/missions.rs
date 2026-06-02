@@ -78,5 +78,16 @@ pub fn tools() -> Vec<Value> {
                 }
             }
         }),
+        json!({
+            "name": "hermes_mission_heartbeat",
+            "description": "Send a liveness heartbeat for an active mission. Records session activity timestamp to prevent stale detection.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "mission_id": { "type": "string", "description": "Mission ID to heartbeat" }
+                },
+                "required": ["mission_id"]
+            }
+        }),
     ]
 }

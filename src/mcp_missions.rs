@@ -155,3 +155,26 @@ fn auto_recall_for_mission(
         "has_prior_work": parsed["has_prior_work"],
     }))
 }
+
+/// `hermes_mission_heartbeat` — record liveness ping for a mission.
+pub fn tool_mission_heartbeat(
+    engine: &HermesEngine,
+    conn: &Connection,
+    args: &Value,
+) -> Result<String> {
+    let mission_id = args["mission_id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("mission_heartbeat requires 'mission_id'"))?;
+
+    let store = MissionStore::new(conn, engine.project_id());
+    store.append_log(mission_id, "heartbeat", &json!({
+        "session_id": args["session_id"].as_str().unwrap_or("unknown"),
+        "ts": chrono::Utc::now().to_rfc3339(),
+    }))?;
+    let log = store.get_log(mission_id)?;
+    Ok(serde_json::to_string_pretty(&json!({
+        "mission_id": mission_id,
+        "heartbeat_logged": true,
+        "log_entries": log.len(),
+    }))?)
+}

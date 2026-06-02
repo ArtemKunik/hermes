@@ -42,15 +42,11 @@ pub struct FetchResponse {
     pub token_count: u64,
     /// Node-level stored token count when available (ingestion-time value).
     pub content_tokens: Option<u64>,
-    /// True when the current fetched content no longer matches ingestion-time hash metadata.
+    /// True when the source file is missing.
     #[serde(default)]
     pub is_stale: bool,
-    /// Why the node was considered stale (hash mismatch, file missing, etc.).
+    /// Why the node was considered stale (file missing, etc.).
     pub stale_reason: Option<String>,
-    /// Hash captured at ingestion time for the node/chunk.
-    pub stored_content_hash: Option<String>,
-    /// Hash of content fetched from disk in the current request.
-    pub current_content_hash: Option<String>,
 }
 
 impl Pointer {

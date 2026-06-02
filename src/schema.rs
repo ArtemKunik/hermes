@@ -23,6 +23,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     migrate_temporal_facts_extended(conn);
     create_missions_table(conn);
     create_proposals_table(conn);
+    create_blast_scores_table(conn);
+    add_edge_project_type_index(conn);
+    create_symbol_index_table(conn);
     Ok(())
 }
 

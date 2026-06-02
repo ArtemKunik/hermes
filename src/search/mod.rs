@@ -167,8 +167,6 @@ impl<'a> SearchEngine<'a> {
             content_tokens: node.content_tokens,
             is_stale: stale.is_stale,
             stale_reason: stale.reason,
-            stored_content_hash: node.content_hash.clone(),
-            current_content_hash: stale.current_content_hash,
         }))
     }
 }

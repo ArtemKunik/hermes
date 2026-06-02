@@ -262,21 +262,18 @@ mod tests {
     #[test]
     fn test_validate_symbols_stale_hint_true_when_file_modified_after_index() {
         let engine = engine_with_symbols(&["some_sym"]);
-        // Write a temp file to disk (so fs::metadata succeeds)
         let tmpfile = std::env::temp_dir().join("hermes_stale_test_hp18.rs");
         std::fs::write(&tmpfile, b"fn stub() {}").unwrap();
-        // Insert a file_hashes row with indexed_at 2 hours ago
         {
             let db = engine.read_db().lock().unwrap();
             db.execute(
                 "INSERT OR REPLACE INTO file_hashes \
-                 (file_path, project_id, content_hash, indexed_at) \
-                 VALUES (?, ?, ?, datetime('now', '-2 hours'))",
-                rusqlite::params![tmpfile.to_str().unwrap(), "test-project", "old_hash"],
+                 (file_path, project_id, indexed_at) \
+                 VALUES (?, ?, datetime('now', '-2 hours'))",
+                rusqlite::params![tmpfile.to_str().unwrap(), "test-project"],
             )
             .unwrap();
         }
-        // File on disk is newer than indexed_at (it was just written)
         let result: serde_json::Value =
             serde_json::from_str(&tool_validate_symbols(&engine, &["missing_sym"]).unwrap())
                 .unwrap();

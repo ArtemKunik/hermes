@@ -60,5 +60,27 @@ pub fn tools() -> Vec<Value> {
                 "required": ["intent"]
             }
         }),
+        json!({
+            "name": "hermes_lookup",
+            "description": "O(1) symbol lookup: find where a function, struct, class, or type is defined. Returns file path, line number, kind, exported flag, and methods (for impl blocks).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "symbol_name": { "type": "string", "description": "Symbol name to find (e.g. 'verify_token', 'AuthService')" }
+                },
+                "required": ["symbol_name"]
+            }
+        }),
+        json!({
+            "name": "hermes_file_symbols",
+            "description": "List all symbols defined in a file with their line numbers, kinds, and exported status. Returns an array of symbol entries sorted by line.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "file_path": { "type": "string", "description": "File path relative to project root (e.g. 'src/auth.rs')" }
+                },
+                "required": ["file_path"]
+            }
+        }),
     ]
 }

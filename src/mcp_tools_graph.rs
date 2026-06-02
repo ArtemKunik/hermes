@@ -4,9 +4,10 @@
 // Extracted from mcp_tools.rs for size compliance.
 
 use anyhow::Result;
+use rusqlite::Connection as SqliteConnection;
 use serde_json::json;
 
-use crate::{accounting::Accountant, HermesEngine};
+use crate::{accounting::Accountant, blast_radius, HermesEngine};
 
 /// Generate a token-budget-constrained repository map.
 ///
@@ -165,6 +166,7 @@ pub fn tool_impact_analysis(engine: &HermesEngine, symbol_name: &str) -> Result<
 
     let impact_len = impact_graph.len();
     let target_len = targets.len();
+    let blast_info = get_blast_info(&conn, project_id, symbol_name);
     drop(stmt);
     drop(conn);
     let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
@@ -179,8 +181,72 @@ pub fn tool_impact_analysis(engine: &HermesEngine, symbol_name: &str) -> Result<
     Ok(serde_json::to_string_pretty(&json!({
         "symbol": symbol_name,
         "impact_score": impact_len,
-        "affected_dependencies": impact_graph
+        "affected_dependencies": impact_graph,
+        "blast_radius": blast_info
     }))?)
+}
+
+/// Look up the blast-radius score for a specific node or file path.
+pub fn tool_blast_score(engine: &HermesEngine, query: &str) -> Result<String> {
+    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let project_id = engine.project_id();
+
+    match crate::blast_radius::get_blast_score(&conn, project_id, query) {
+        Ok(Some(score)) => {
+            let affected = score.direct_count + score.transitive_count;
+            Ok(serde_json::to_string_pretty(&json!({
+                "node_id": score.node_id,
+                "file_path": score.file_path,
+                "direct_dependents": score.direct_count,
+                "transitive_dependents": score.transitive_count,
+                "total_affected": affected,
+                "blast_score": score.blast_score,
+                "risk_level": score.risk_level.as_str()
+            }))?)
+        }
+        Ok(None) => anyhow::bail!("No blast-score data found for: {query}"),
+        Err(e) => Err(e),
+    }
+}
+
+/// Get top-N files/symbols by blast score above a threshold.
+pub fn tool_high_blast(engine: &HermesEngine, threshold: f64, limit: usize) -> Result<String> {
+    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let project_id = engine.project_id();
+
+    let scores = crate::blast_radius::get_high_blast(&conn, project_id, threshold, limit)?;
+
+    let items: Vec<serde_json::Value> = scores.iter().map(|s| {
+        json!({
+            "node_id": s.node_id,
+            "file_path": s.file_path,
+            "direct_dependents": s.direct_count,
+            "transitive_dependents": s.transitive_count,
+            "blast_score": s.blast_score,
+            "risk_level": s.risk_level.as_str()
+        })
+    }).collect();
+
+    Ok(serde_json::to_string_pretty(&json!({
+        "threshold": threshold,
+        "limit": limit,
+        "count": items.len(),
+        "high_blast_nodes": items
+    }))?)
+}
+
+/// Helper: look up blast info for a symbol name in impact_analysis.
+fn get_blast_info(conn: &SqliteConnection, project_id: &str, symbol_name: &str) -> serde_json::Value {
+    match blast_radius::get_blast_score(conn, project_id, symbol_name) {
+        Ok(Some(score)) => json!({
+            "found": true,
+            "direct_dependents": score.direct_count,
+            "transitive_dependents": score.transitive_count,
+            "blast_score": score.blast_score,
+            "risk_level": score.risk_level.as_str()
+        }),
+        _ => json!({ "found": false }),
+    }
 }
 
 #[cfg(test)]

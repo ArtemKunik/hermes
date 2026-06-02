@@ -22,6 +22,7 @@ const CORE_TOOLS: &[&str] = &[
     "hermes_index",        // re-index after file changes
     "hermes_validate_symbols", // catch typos in function/struct names before coding
     "hermes_constraints",  // recite layer rules + size budget before generating code
+    "hermes_lookup",       // O(1) symbol location lookup
     "hermes_mcp_status",   // diagnostic: node counts, index state — used by ccterm status panel
     "hermes_stats",        // diagnostic: token savings — used by ccterm status panel
 ];
@@ -39,6 +40,8 @@ const STANDARD_TOOLS: &[&str] = &[
     "hermes_index",
     "hermes_validate_symbols",
     "hermes_constraints",
+    "hermes_lookup",
+    "hermes_file_symbols",
     "hermes_mcp_status",
     "hermes_stats",
     // -- standard additions --
@@ -47,6 +50,8 @@ const STANDARD_TOOLS: &[&str] = &[
     "hermes_validate_env",         // validate env var names
     "hermes_check_consistency",    // detect Unknown/Unused env vars
     "hermes_impact_analysis",      // blast-radius before refactoring
+    "hermes_blast_score",          // blast-radius score lookup
+    "hermes_high_blast",           // top-N high-impact nodes
     "hermes_prepare_commit_message", // structured commit trailers
     "hermes_lint_architecture",    // arch-layer violation scan
     "hermes_quality_baseline",     // snapshot violation set as drift baseline

@@ -2,6 +2,10 @@
 #![recursion_limit = "256"]
 pub mod accounting;
 pub mod arch_rules;
+pub mod blast_radius;
+pub mod hook;
+pub mod symbol_index;
+pub mod symbol_inject;
 pub mod embedding;
 pub mod graph;
 pub mod graph_builders;
@@ -58,6 +62,7 @@ pub mod tool_runtime;
 pub mod tool_router;
 pub mod watcher;
 pub mod weight;
+pub mod viz;
 
 use crate::pointer::PointerResponse;
 use crate::tool_circuit_breaker::ToolCircuitBreaker;

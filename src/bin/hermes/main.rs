@@ -7,6 +7,7 @@ mod handlers_advanced;
 use anyhow::{bail, Result};
 use hermes_engine::{mcp_server, mcp_tools_validation, mcp_tools, mcp_quality};
 use std::env;
+use std::path::PathBuf;
 
 use crate::cli::{parse_flag, print_usage};
 use crate::cli_runtime::open_engine;
@@ -262,14 +263,60 @@ fn main() -> Result<()> {
             println!("{out}");
             Ok(())
         }
-        "quality-drift" => {
-            let out = hermes_engine::mcp_quality_drift::tool_quality_drift(
-                &engine, &project_root, &serde_json::json!({}),
-            )?;
-            println!("{out}");
-            Ok(())
+"quality-drift" => {
+    let out = hermes_engine::mcp_quality_drift::tool_quality_drift(
+        &engine, &project_root, &serde_json::json!({}),
+    )?;
+    println!("{out}");
+    Ok(())
+}
+"inject-symbols" => {
+    let path = args.iter()
+        .position(|a| a == "--path")
+        .and_then(|i| args.get(i + 1))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| project_root.join("AGENTS.md"));
+    let all = args.iter().any(|a| a == "--all");
+    let budget = args.iter()
+        .position(|a| a == "--budget")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(2000);
+    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    hermes_engine::symbol_inject::inject_symbols(&conn, engine.project_id(), &path, all, budget)?;
+    println!("Injected symbols into {}", path.display());
+    Ok(())
+}
+"install-hook" => {
+    let threshold = args.iter()
+        .position(|a| a == "--threshold")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(10.0);
+    let strict = args.iter().any(|a| a == "--strict");
+    let remove = args.iter().any(|a| a == "--remove");
+
+    if remove {
+        match hermes_engine::hook::remove_hook(&project_root) {
+            Ok(true) => println!("Removed hermes pre-commit hook"),
+            Ok(false) => println!("No hermes pre-commit hook found"),
+            Err(e) => println!("{e}"),
         }
-        unknown => {
+        return Ok(());
+    }
+
+    let script = hermes_engine::hook::generate_hook_script(threshold, strict);
+    hermes_engine::hook::install_hook(&project_root, &script)?;
+    println!("Installed hermes pre-commit hook (threshold={threshold}, strict={strict})");
+    Ok(())
+}
+"serve" => {
+    let port = parse_flag(&args, "--port")
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(hermes_engine::viz::server::DEFAULT_VIZ_PORT);
+    cmd_viz(&engine, &project_root, port)
+}
+unknown => {
             print_usage();
             bail!("unknown command: {unknown}");
         }

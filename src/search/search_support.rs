@@ -1,6 +1,5 @@
 // tools/hermes-engine/src/search/search_support.rs
 use crate::graph::{KnowledgeGraph, Node};
-use crate::ingestion::hash_tracker::compute_hash;
 use crate::pointer::{Pointer, PointerResponse};
 use crate::weight::WeightStore;
 use crate::SearchCacheMap;
@@ -200,41 +199,26 @@ pub(crate) fn detect_staleness(node: &Node, content: &str) -> StalenessInfo {
         return StalenessInfo {
             is_stale: true,
             reason: Some("source file is missing".to_string()),
-            current_content_hash: None,
         };
     }
 
-    let Some(stored_hash) = node.content_hash.as_ref() else {
-        return StalenessInfo::fresh(None);
-    };
-
-    let current_hash = compute_hash(content);
-    if current_hash == *stored_hash {
-        StalenessInfo::fresh(Some(current_hash))
-    } else {
-        StalenessInfo {
-            is_stale: true,
-            reason: Some(
-                "content hash mismatch; node is stale and should be re-indexed".to_string(),
-            ),
-            current_content_hash: Some(current_hash),
-        }
-    }
+    // Hash-based staleness detection removed.
+    // Nodes are considered fresh if the source file exists.
+    // Re-indexing on next run will update any changed content.
+    StalenessInfo::fresh()
 }
 
 #[derive(Debug)]
 pub(crate) struct StalenessInfo {
     pub(crate) is_stale: bool,
     pub(crate) reason: Option<String>,
-    pub(crate) current_content_hash: Option<String>,
 }
 
 impl StalenessInfo {
-    pub(crate) fn fresh(current_content_hash: Option<String>) -> Self {
+    pub(crate) fn fresh() -> Self {
         Self {
             is_stale: false,
             reason: None,
-            current_content_hash,
         }
     }
 }

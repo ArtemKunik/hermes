@@ -198,3 +198,49 @@ pub(crate) fn create_missions_table(conn: &Connection) {
     let _ = conn.execute_batch("ALTER TABLE missions ADD COLUMN diff TEXT;");
     let _ = conn.execute_batch("ALTER TABLE missions ADD COLUMN commit_range TEXT;");
 }
+
+/// Idempotent: creates `blast_scores` table for per-node blast-radius scoring.
+pub(crate) fn create_blast_scores_table(conn: &Connection) {
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS blast_scores (
+            node_id          TEXT PRIMARY KEY REFERENCES nodes(id),
+            project_id       TEXT NOT NULL,
+            file_path        TEXT,
+            direct_count     INTEGER NOT NULL DEFAULT 0,
+            transitive_count INTEGER NOT NULL DEFAULT 0,
+            blast_score      REAL NOT NULL DEFAULT 0.0,
+            risk_level       TEXT NOT NULL DEFAULT 'LOW',
+            computed_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_blast_project ON blast_scores(project_id);
+        CREATE INDEX IF NOT EXISTS idx_blast_score_desc ON blast_scores(blast_score DESC);
+        CREATE INDEX IF NOT EXISTS idx_blast_file ON blast_scores(file_path);",
+    );
+}
+
+/// Idempotent: creates edge-type composite index for filtered BFS queries.
+pub(crate) fn add_edge_project_type_index(conn: &Connection) {
+    let _ = conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_edges_project_type \
+         ON edges(project_id, edge_type);",
+    );
+}
+
+/// Idempotent: creates `symbol_index` table for O(1) symbol-to-location lookup.
+pub(crate) fn create_symbol_index_table(conn: &Connection) {
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS symbol_index (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id  TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            file_path   TEXT NOT NULL,
+            line        INTEGER NOT NULL,
+            kind        TEXT NOT NULL,
+            exported    INTEGER NOT NULL DEFAULT 0,
+            methods     TEXT,
+            UNIQUE(project_id, name, file_path, line)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sym_name ON symbol_index(name);
+        CREATE INDEX IF NOT EXISTS idx_sym_file ON symbol_index(project_id, file_path);",
+    );
+}

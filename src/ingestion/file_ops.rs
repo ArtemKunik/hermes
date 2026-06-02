@@ -1,26 +1,62 @@
 use crate::graph::{EdgeType, KnowledgeGraph, NodeType};
 use crate::ingestion::env_scanner::{DiscoveredEnvVar, EnvScanner};
-use crate::ingestion::hash_tracker;
 use crate::ingestion::llm_enricher::LlmEnricher;
+use crate::ingestion::normalize_logical_path;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+fn is_exported(content: &str) -> bool {
+    let first_line = content.lines().next().unwrap_or("").trim();
+    first_line.starts_with("pub ") || first_line.starts_with("pub(") || first_line.starts_with("export ")
+}
+
+fn extract_methods(content: &str) -> Option<String> {
+    let methods: Vec<&str> = content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("fn ") {
+                let name = rest.split('(').next().unwrap_or("").trim();
+                if !name.is_empty() && !name.starts_with('_') { Some(name) } else { None }
+            } else if let Some(rest) = trimmed.strip_prefix("pub fn ") {
+                let name = rest.split('(').next().unwrap_or("").trim();
+                if !name.is_empty() && !name.starts_with('_') { Some(name) } else { None }
+            } else {
+                None
+            }
+        })
+        .collect();
+    if methods.is_empty() { None } else { Some(methods.join(", ")) }
+}
+
+fn insert_symbol_index(
+    graph: &KnowledgeGraph,
+    name: &str,
+    file_path: &str,
+    start_line: i64,
+    kind: &str,
+    content: &str,
+    is_impl: bool,
+) -> Result<()> {
+    let exported = is_exported(content);
+    let methods = if is_impl { extract_methods(content) } else { None };
+    let conn = graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    crate::symbol_index::insert_symbol(&conn, graph.project_id(), name, file_path, start_line, kind, exported, methods.as_deref())?;
+    Ok(())
+}
+
 pub fn ingest_file_inner(
     graph: &KnowledgeGraph,
-    ht: &hash_tracker::HashTracker<'_>,
     enricher: Option<&Arc<LlmEnricher>>,
     env_scanner: &EnvScanner,
     file_path: &Path,
     env_vars_acc: &Arc<Mutex<Vec<DiscoveredEnvVar>>>,
 ) -> Result<usize> {
-    // Read as raw bytes and decode lossily so non-UTF-8 files (Latin-1, etc.)
-    // are ingested with replacement characters rather than silently skipped.
     let raw_bytes = std::fs::read(file_path)?;
     let content = String::from_utf8_lossy(&raw_bytes).into_owned();
-    let path_str = hash_tracker::normalize_logical_path(&file_path.to_string_lossy());
+    let path_str = normalize_logical_path(&file_path.to_string_lossy());
 
-    // TRACK-040 Phase 2: Use AST chunking if available, otherwise fall back to regex.
     #[cfg(feature = "ast")]
     let (ast_chunks, regex_chunks) =
         if file_path.extension().and_then(|s| s.to_str()) == Some("rs") {
@@ -46,14 +82,12 @@ pub fn ingest_file_inner(
         crate::ingestion::chunker::chunk_file(file_path, &content),
     );
 
-    let file_hash = hash_tracker::compute_hash(&content);
     let file_node = graph
         .create_node_builder()
         .name(&path_str)
         .node_type(NodeType::File)
         .file_path(&path_str)
         .lines(1, content.lines().count() as i64)
-        .content_hash(&file_hash)
         .content_tokens(crate::search::estimate_tokens(&content))
         .build();
 
@@ -63,12 +97,6 @@ pub fn ingest_file_inner(
     let mut created = 1;
 
     for ast_chunk in &ast_chunks {
-        let chunk_key = format!("{}::{}", path_str, ast_chunk.name);
-        let chunk_hash = hash_tracker::compute_hash(&ast_chunk.content);
-        if ht.is_chunk_unchanged(&chunk_key, &chunk_hash)? {
-            continue;
-        }
-
         let summary = enricher
             .as_ref()
             .and_then(|e| e.enrich(&path_str, &ast_chunk.name, &ast_chunk.content))
@@ -106,17 +134,19 @@ pub fn ingest_file_inner(
             .edge_type(EdgeType::Contains)
             .build();
         graph.add_edge(&edge)?;
-        ht.update_chunk_hash(&chunk_key, &chunk_hash)?;
         created += 1;
+        insert_symbol_index(
+            graph,
+            &ast_chunk.name,
+            &path_str,
+            ast_chunk.start_line as i64,
+            &ast_chunk.object_type,
+            &ast_chunk.content,
+            ast_chunk.object_type == "impl",
+        )?;
     }
 
     for chunk in &regex_chunks {
-        let chunk_key = format!("{}::{}", path_str, chunk.name);
-        let chunk_hash = hash_tracker::compute_hash(&chunk.content);
-        if ht.is_chunk_unchanged(&chunk_key, &chunk_hash)? {
-            continue;
-        }
-
         let summary = enricher
             .as_ref()
             .and_then(|e| e.enrich(&path_str, &chunk.name, &chunk.content))
@@ -143,11 +173,19 @@ pub fn ingest_file_inner(
             .edge_type(EdgeType::Contains)
             .build();
         graph.add_edge(&edge)?;
-        ht.update_chunk_hash(&chunk_key, &chunk_hash)?;
         created += 1;
+        let kind_str = format!("{:?}", chunk.node_type).to_lowercase();
+        insert_symbol_index(
+            graph,
+            &chunk.name,
+            &path_str,
+            chunk.start_line as i64,
+            &kind_str,
+            &chunk.content,
+            matches!(chunk.node_type, NodeType::Impl),
+        )?;
     }
 
-    // Scan for environment variables and create Config nodes/edges.
     let cleaned_content = EnvScanner::strip_comments(&content);
     let discovered_vars = env_scanner.scan_file(file_path, &cleaned_content);
     for var in &discovered_vars {
@@ -184,9 +222,6 @@ pub fn ingest_file_inner(
     Ok(created)
 }
 
-/// Attempt to generate and store an embedding for a symbol chunk.
-/// Best-effort: failures are ignored so indexing continues if the
-/// embedding service is unavailable.
 pub fn maybe_index_embedding_inner(
     graph: &KnowledgeGraph,
     file_path: &str,
@@ -229,8 +264,6 @@ pub fn maybe_index_embedding_inner(
     Ok(())
 }
 
-/// Backfill stored `content_tokens` for nodes that are missing the value.
-/// Returns the number of nodes updated.
 pub fn backfill_content_tokens_inner(graph: &KnowledgeGraph) -> Result<usize> {
     let nodes = graph.get_all_nodes()?;
     let mut updated: usize = 0;

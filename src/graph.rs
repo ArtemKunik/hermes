@@ -76,8 +76,8 @@ impl KnowledgeGraph {
             let now = Utc::now().to_rfc3339();
             conn.execute(
                 "INSERT OR REPLACE INTO nodes
-                 (id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                 (id, project_id, name, node_type, file_path, start_line, end_line, summary, content_tokens, object_type, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     node.id,
                     node.project_id,
@@ -87,7 +87,6 @@ impl KnowledgeGraph {
                     node.start_line,
                     node.end_line,
                     node.summary,
-                    node.content_hash,
                     node.content_tokens.map(|v| v as i64),
                     node.object_type,
                     now,
@@ -100,7 +99,7 @@ impl KnowledgeGraph {
     pub fn get_node(&self, node_id: &str) -> Result<Option<Node>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type
+                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_tokens, object_type
                  FROM nodes WHERE id = ?1 AND project_id = ?2",
             )?;
             let result = stmt
@@ -114,9 +113,9 @@ impl KnowledgeGraph {
                         start_line: row.get(5)?,
                         end_line: row.get(6)?,
                         summary: row.get(7)?,
-                        content_hash: row.get(8)?,
-                        content_tokens: row.get::<_, Option<i64>>(9)?.map(|v| v as u64),
-                        object_type: row.get(10)?,
+                        content_hash: None,
+                        content_tokens: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
+                        object_type: row.get(9)?,
                     })
                 })
                 .optional()

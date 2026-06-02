@@ -3,14 +3,13 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use crate::graph::{KnowledgeGraph};
 use crate::graph_types::{Edge, EdgeType, Node, NodeType};
-use crate::graph_queries::node_from_row;
 
 impl KnowledgeGraph {
     pub fn get_neighbors(&self, node_id: &str) -> Result<Vec<(Edge, Node)>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT e.id, e.project_id, e.source_id, e.target_id, e.edge_type, e.weight,
-                        n.id, n.project_id, n.name, n.node_type, n.file_path, n.start_line, n.end_line, n.summary, n.content_hash, n.content_tokens, n.object_type
+                        n.id, n.project_id, n.name, n.node_type, n.file_path, n.start_line, n.end_line, n.summary, n.content_tokens, n.object_type
                  FROM edges e
                  JOIN nodes n ON n.id = CASE WHEN e.source_id = ?1 THEN e.target_id ELSE e.source_id END
                  WHERE (e.source_id = ?1 OR e.target_id = ?1) AND e.project_id = ?2",
@@ -26,7 +25,19 @@ impl KnowledgeGraph {
                             edge_type: EdgeType::parse_str(&row.get::<_, String>(4)?),
                             weight: row.get(5)?,
                         },
-                        node_from_row(row)?,
+                        Node {
+                            id: row.get(6)?,
+                            project_id: row.get(7)?,
+                            name: row.get(8)?,
+                            node_type: NodeType::parse_str(&row.get::<_, String>(9)?),
+                            file_path: row.get(10)?,
+                            start_line: row.get(11)?,
+                            end_line: row.get(12)?,
+                            summary: row.get(13)?,
+                            content_hash: None,
+                            content_tokens: row.get::<_, Option<i64>>(14)?.map(|v| v as u64),
+                            object_type: row.get(15)?,
+                        },
                     ))
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;

@@ -41,9 +41,10 @@ pub fn print_usage() {
            review <path> [--dim QD-XX] [--tier T4]  Quality Lens: LLM review of files\n\
            score [--module <name>] [--trend]         Quality score per module and project\n\
            next-review [--module <name>]             Highest-priority open finding\n\
-           resolve-review --id <id>                 Mark finding resolved, recompute score\n\
-           wontfix-review --id <id> --reason <text> Halve penalty (acknowledge, not hide)\n\
-           --stdio             Run as MCP JSON-RPC 2.0 stdio server (for VS Code Copilot)\n\n\
+            resolve-review --id <id>                 Mark finding resolved, recompute score\n\
+            wontfix-review --id <id> --reason <text> Halve penalty (acknowledge, not hide)\n\
+            serve [--port <port>]                    Start viz web UI on port (default: 8080)\n\
+            --stdio             Run as MCP JSON-RPC 2.0 stdio server (for VS Code Copilot)\n\n\
          Env vars:\n\
            HERMES_PROJECT_ROOT             Root directory to index (default: cwd)\n\
            HERMES_DB_PATH                  SQLite DB path (default: <project_root>/.hermes.db)\n\
