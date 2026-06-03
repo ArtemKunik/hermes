@@ -2,13 +2,16 @@
 // TRACK-049: LLM-driven code review orchestration — file enumeration, prompt
 // construction, evidence validation, secret scrubbing, and finding merging.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Deserialize;
+use shared_rust::llm_gateway_client::{LlmGatewayClient, Message};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::quality::state::Finding;
 use crate::quality::zone::{classify_zone, Zone};
+
+const CALLER_ID: &str = "hermes-quality";
 
 // ---------------------------------------------------------------------------
 // Quality dimensions (QD-01 … QD-14) — mapped from copilot-instructions.md
@@ -124,9 +127,8 @@ fn is_reviewable_ext(path: &Path) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Review a single file against one dimension, returning validated findings.
-/// Tries each provider URL in order; returns findings from the first that succeeds.
 pub fn review_file_dimension(
-    providers: &[String],
+    client: &LlmGatewayClient,
     file_path: &Path,
     content: &str,
     zone: &Zone,
@@ -134,7 +136,7 @@ pub fn review_file_dimension(
 ) -> Result<Vec<Finding>> {
     let snippet: String = content.chars().take(MAX_FILE_CHARS).collect();
     let prompt = build_prompt(file_path, &snippet, zone, dim);
-    let raw = call_llm(providers, &prompt)?;
+    let raw = call_llm(client, &prompt)?;
     Ok(raw
         .into_iter()
         .filter_map(|rf| validate_and_build_finding(rf, content, file_path, zone, dim))
@@ -197,58 +199,17 @@ fn build_prompt(file_path: &Path, content: &str, zone: &Zone, dim: &Dimension) -
 }
 
 // ---------------------------------------------------------------------------
-// LLM call — same pattern as llm_gateway_client.rs: LLM_GATEWAY_API_KEY → X-Gateway-Key
+// LLM call via unified LlmGatewayClient
 // ---------------------------------------------------------------------------
 
-// Tries each provider URL in order, returning findings from the first success.
-// LM Studio (localhost) ignores the X-Gateway-Key header harmlessly.
-// chat_template_kwargs disables Qwen3 extended thinking so the token budget
-// goes to the JSON output, not the reasoning trace.
-fn call_llm(providers: &[String], prompt: &str) -> Result<Vec<LlmFinding>> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()?;
-    let body = serde_json::json!({
-        "messages": [
-            {"role": "system", "content": "You are a code reviewer. Output ONLY a raw JSON array — no prose, no markdown, no explanations. Just the JSON array."},
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 1500
-    });
-    let gateway_key = std::env::var("LLM_GATEWAY_API_KEY")
-        .ok()
-        .filter(|k| !k.trim().is_empty());
-    let mut last_err = String::from("no providers configured");
-    for url in providers {
-        let mut req = client
-            .post(format!("{url}/v1/chat/completions"))
-            .json(&body);
-        if let Some(ref key) = gateway_key {
-            req = req.header("X-Gateway-Key", key.trim());
-        }
-        match req.send() {
-            Err(e) => { last_err = format!("{url}: {e}"); continue; }
-            Ok(resp) => {
-                let status = resp.status();
-                if !status.is_success() {
-                    let body_text = resp.text().unwrap_or_default();
-                    last_err = format!("{url}: {} — {}", status, body_text.trim());
-                    continue;
-                }
-                match resp.json::<serde_json::Value>() {
-                    Err(e) => { last_err = format!("{url}: parse — {e}"); continue; }
-                    Ok(json) => {
-                        let content = json
-                            .pointer("/choices/0/message/content")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("[]");
-                        return Ok(serde_json::from_str(&extract_json_array(content)).unwrap_or_default());
-                    }
-                }
-            }
-        }
-    }
-    anyhow::bail!("{last_err}")
+fn call_llm(client: &LlmGatewayClient, prompt: &str) -> Result<Vec<LlmFinding>> {
+    let system = Message::system("You are a code reviewer. Output ONLY a raw JSON array — no prose, no markdown, no explanations. Just the JSON array.");
+    let user = Message::user(prompt);
+    let completion = client
+        .blocking_chat(None, &[system, user], CALLER_ID)
+        .context("LLM quality review call failed")?;
+    let content = extract_json_array(&completion.text);
+    Ok(serde_json::from_str(&content).unwrap_or_default())
 }
 
 fn extract_json_array(content: &str) -> String {

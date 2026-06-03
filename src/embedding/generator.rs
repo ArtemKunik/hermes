@@ -1,11 +1,12 @@
 // tools/hermes-engine/src/embedding/generator.rs
 use super::deterministic_embedding;
 use super::provider_types::{
-    EmbeddingContent, EmbeddingPart, EmbeddingRequest, EmbeddingResponse, GatewayRequest,
-    GatewayResponse, LmStudioRequest, LmStudioResponse, OaRequest, OaResponse,
+    EmbeddingContent, EmbeddingPart, EmbeddingRequest, EmbeddingResponse,
+    LmStudioRequest, LmStudioResponse, OaRequest, OaResponse,
 };
 use super::routing::{resolve_lmstudio_targets, LmStudioTarget, DEFAULT_LMSTUDIO_MODEL};
 use anyhow::{Context, Result};
+use shared_rust::llm_gateway_client::LlmGatewayClient;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -19,8 +20,7 @@ const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 10;
 pub struct EmbeddingGenerator {
     api_key: String,
     model: String,
-    gateway_url: Option<String>,
-    gateway_key: Option<String>,
+    gateway_client: Option<LlmGatewayClient>,
     lmstudio_targets: Vec<LmStudioTarget>,
     client: reqwest::Client,
     rate_limiter: Arc<Semaphore>,
@@ -43,11 +43,16 @@ impl EmbeddingGenerator {
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_RPM);
 
+        let gateway_client = match (gateway_url, gateway_key) {
+            (Some(url), Some(key)) => Some(LlmGatewayClient::new(reqwest::Client::new(), url, Some(key))),
+            (Some(url), None) => Some(LlmGatewayClient::new(reqwest::Client::new(), url, None)),
+            (None, _) => None,
+        };
+
         Ok(Self {
             api_key,
             model,
-            gateway_url,
-            gateway_key,
+            gateway_client,
             lmstudio_targets,
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
@@ -90,35 +95,16 @@ impl EmbeddingGenerator {
             .await
             .map_err(|e| anyhow::anyhow!("Rate limiter closed: {e}"))?;
 
-        if let Some(gateway) = &self.gateway_url {
-            let url = format!("{}/v1/embeddings", gateway.trim_end_matches('/'));
-            let request = GatewayRequest {
-                model: &self.model,
-                input: text,
-                caller_id: "hermes-engine",
-            };
-
-            let mut req = self.client.post(&url).json(&request);
-            if let Some(key) = &self.gateway_key {
-                req = req.header("X-Gateway-Key", key);
-            }
-
-            let response = tokio::time::timeout(std::time::Duration::from_secs(10), req.send())
-                .await
-                .map_err(|_| anyhow::anyhow!("LLM Gateway embedding request timed out after 10s"))?
-                .context("Failed to call LLM Gateway for embedding")?;
-            let status = response.status();
-            if status.is_success() {
-                let parsed: GatewayResponse = response
-                    .json()
-                    .await
-                    .context("Failed to parse gateway embedding response")?;
-                if let Some(first) = parsed.data.into_iter().next() {
-                    return Ok(first.embedding);
+        if let Some(gateway) = &self.gateway_client {
+            match gateway.embed(text, Some(&self.model), "hermes-engine").await {
+                Ok(result) => {
+                    if let Some(first) = result.embeddings.into_iter().next() {
+                        return Ok(first);
+                    }
                 }
-            } else {
-                let body = response.text().await.unwrap_or_default();
-                tracing::warn!("LLM Gateway embedding failed (status={status}): {body} — falling back to LM Studio or direct provider");
+                Err(e) => {
+                    tracing::warn!("LLM Gateway embedding failed: {e} — falling back to LM Studio or direct provider");
+                }
             }
         }
 

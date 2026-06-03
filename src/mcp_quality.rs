@@ -1,6 +1,8 @@
 use anyhow::{bail, Result};
 use chrono::Utc;
+use reqwest::Client;
 use serde_json::{json, Value};
+use shared_rust::llm_gateway_client::LlmGatewayClient;
 use std::path::Path;
 
 use crate::quality::{
@@ -12,10 +14,10 @@ use crate::HermesEngine;
 
 const DEFAULT_GATEWAY: &str = "http://localhost:3001";
 
-fn gateway_url() -> String {
-    std::env::var("LLM_GATEWAY_URL")
-        .or_else(|_| std::env::var("HERMES_LLM_GATEWAY_URL"))
-        .unwrap_or_else(|_| DEFAULT_GATEWAY.to_string())
+fn gateway_client() -> LlmGatewayClient {
+    LlmGatewayClient::from_env(Client::new()).unwrap_or_else(|| {
+        LlmGatewayClient::new(Client::new(), DEFAULT_GATEWAY.to_string(), None)
+    })
 }
 
 /// Derive module name from a file path (crate directory name under ChartApp/).
@@ -73,10 +75,7 @@ pub fn tool_quality_review(
     }
 
     let files = enumerate_files(&scan_path);
-    let providers = vec![gateway_url()];
-    if verbose {
-        eprintln!("[hermes-quality] providers: {:?}", providers);
-    }
+    let client = gateway_client();
     let mut files_scanned = 0u64;
     let mut findings_added = 0u64;
     let mut findings_detected: Vec<Finding> = Vec::new();
@@ -98,7 +97,7 @@ pub fn tool_quality_review(
                     file_str, zone, dim.id
                 );
             }
-            match review_file_dimension(&providers, file_path, &content, zone, dim) {
+            match review_file_dimension(&client, file_path, &content, zone, dim) {
                 Ok(new_findings) => {
                     findings_detected.extend(new_findings.iter().cloned());
                     for nf in new_findings {

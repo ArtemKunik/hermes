@@ -5,14 +5,52 @@ mod handlers;
 mod handlers_advanced;
 
 use anyhow::{bail, Result};
-use hermes_engine::{mcp_server, mcp_tools_validation, mcp_tools, mcp_quality};
+use hermes_engine::{mcp_server, mcp_tools_validation, mcp_tools, mcp_quality, HermesEngine};
 use std::env;
-use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::cli::{parse_flag, print_usage};
 use crate::cli_runtime::open_engine;
 use crate::handlers::*;
 use crate::handlers_advanced::{cmd_lint_architecture, cmd_heal_violations, cmd_prepare_commit_message};
+
+/// Spawn the Hermes HTTP API on a dedicated thread + tokio runtime.
+///
+/// The HTTP API lets external services (e.g. mastermind daemon) write to the
+/// same System 2 store without going through MCP. Disabled when
+/// `HERMES_HTTP_DISABLED=1`.
+fn spawn_http_api(engine: HermesEngine) {
+    if env::var("HERMES_HTTP_DISABLED").ok().as_deref() == Some("1") {
+        eprintln!("[hermes] http api disabled (HERMES_HTTP_DISABLED=1)");
+        return;
+    }
+    let port = hermes_engine::http_api::resolve_http_port();
+    let engine_arc = Arc::new(engine);
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[hermes] http api: failed to build tokio runtime: {e}");
+                return;
+            }
+        };
+        rt.block_on(async move {
+            let app = hermes_engine::http_api::build_router(engine_arc);
+            let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+            match tokio::net::TcpListener::bind(addr).await {
+                Ok(listener) => {
+                    eprintln!("[hermes] http api listening on {addr}");
+                    if let Err(e) = axum::serve(listener, app.into_make_service()).await {
+                        eprintln!("[hermes] http api server error: {e}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[hermes] http api: failed to bind {addr}: {e}");
+                }
+            }
+        });
+    });
+}
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -40,6 +78,7 @@ fn main() -> Result<()> {
 
     // MCP stdio mode: VS Code spawns us directly as an MCP server.
     if command == "--stdio" {
+        spawn_http_api(engine.clone());
         return mcp_server::run(&engine, &project_root);
     }
 

@@ -39,11 +39,13 @@ fn quality_review_returns_current_run_findings_json_shape() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock gateway");
     let address = format!("http://{}", listener.local_addr().expect("local addr"));
     let response_body = serde_json::json!({
+        "model": "hermes-test",
         "choices": [{
             "message": {
                 "content": "[{\"tier\":\"T2\",\"line_hint\":2,\"description\":\"Needless collection pass. Complexity: O(N). Verdict: likely avoidable\",\"evidence\":\"numbers.iter().collect::<Vec<_>>()\"}]"
             }
-        }]
+        }],
+        "usage": { "prompt_tokens": 50, "completion_tokens": 30, "total_tokens": 80 }
     })
     .to_string();
 

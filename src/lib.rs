@@ -13,6 +13,7 @@ pub mod graph_ops;
 pub mod graph_queries;
 pub mod graph_support;
 pub mod graph_types;
+pub mod http_api;
 pub mod index_lock;
 pub mod ingestion;
 pub mod mcp_actor;

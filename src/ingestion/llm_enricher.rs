@@ -7,7 +7,8 @@
 // Any network/parse failure is handled gracefully — enrichment silently falls back
 // to the existing regex-derived summary so offline indexing always works.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use shared_rust::llm_gateway_client::{LlmGatewayClient, Message};
 use std::sync::{Arc, Condvar, Mutex};
 use tracing::warn;
 
@@ -16,7 +17,6 @@ const CALLER_ID: &str = "hermes-enricher";
 /// Max chars of chunk content to send; keeps prompt tokens low.
 const CONTENT_PREVIEW_CHARS: usize = 800;
 /// Max LLM output tokens — a structured JSON summary needs ~60-100 tokens.
-const MAX_OUTPUT_TOKENS: u32 = 120;
 const DEFAULT_MAX_IN_FLIGHT: usize = 4;
 const MAX_PURPOSE_WORDS: usize = 15;
 const ALLOWED_LAYERS: [&str; 9] = [
@@ -36,8 +36,7 @@ const ALLOWED_LAYERS: [&str; 9] = [
 // ---------------------------------------------------------------------------
 
 pub struct LlmEnricher {
-    client: reqwest::blocking::Client,
-    pub gateway_url: String,
+    client: LlmGatewayClient,
     max_in_flight: usize,
     in_flight: Arc<(Mutex<usize>, Condvar)>,
 }
@@ -45,74 +44,52 @@ pub struct LlmEnricher {
 impl LlmEnricher {
     /// Build an enricher from `HERMES_LLM_GATEWAY_URL` env var (falls back to localhost:3001).
     pub fn from_env() -> Self {
-        let url = std::env::var("HERMES_LLM_GATEWAY_URL")
+        let base_url = std::env::var("LLM_GATEWAY_URL")
+            .or_else(|_| std::env::var("HERMES_LLM_GATEWAY_URL"))
             .unwrap_or_else(|_| DEFAULT_GATEWAY_URL.to_string());
+        let api_key = std::env::var("LLM_GATEWAY_API_KEY")
+            .or_else(|_| std::env::var("HERMES_LLM_GATEWAY_KEY"))
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        let client = LlmGatewayClient::new(reqwest::Client::new(), base_url, api_key);
         let max_in_flight = std::env::var("HERMES_LLM_ENRICH_MAX_IN_FLIGHT")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|v| *v > 0)
             .unwrap_or(DEFAULT_MAX_IN_FLIGHT);
-        Self::new(url, max_in_flight)
+        Self::new(client, max_in_flight)
     }
 
-    pub fn new(gateway_url: String, max_in_flight: usize) -> Self {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .unwrap_or_default();
+    pub fn new(client: LlmGatewayClient, max_in_flight: usize) -> Self {
         Self {
             client,
-            gateway_url,
             max_in_flight,
             in_flight: Arc::new((Mutex::new(0), Condvar::new())),
         }
     }
 
-    /// Enrich a chunk. Returns a formatted summary string, or `None` on any failure.
-    ///
-    /// Failure modes handled silently (with a `warn!` log):
-    /// - Gateway unreachable
-    /// - Non-2xx HTTP response
-    /// - Malformed JSON in LLM reply
     pub fn enrich(&self, file_path: &str, chunk_name: &str, content: &str) -> Option<String> {
         let _in_flight_guard = self.acquire_slot()?;
         let snippet: String = content.chars().take(CONTENT_PREVIEW_CHARS).collect();
 
-        let body = build_request_body(file_path, chunk_name, &snippet);
-        let url = format!("{}/v1/chat/completions", self.gateway_url);
+        let system = Message::system("You are a code analysis assistant. Respond ONLY with valid JSON — no markdown fences, no extra text.");
+        let user_content = format!(
+            "Analyze this code chunk and respond with EXACTLY this JSON (no other text):\n\
+            {{\"layer\": \"<handler|service|store|component|hook|type|config|test|other>\", \
+            \"purpose\": \"<one sentence, max 15 words>\", \
+            \"deps\": [\"SymbolA\", \"SymbolB\"]}}\n\n\
+            File: {file_path}\nChunk: {chunk_name}\n\n```\n{snippet}\n```"
+        );
+        let user = Message::user(&user_content);
 
-        let response = match self.client.post(&url).json(&body).send() {
-            Ok(r) => r,
+        match self.client.blocking_chat(None, &[system, user], CALLER_ID) {
+            Ok(completion) => parse_enrichment(&completion.text),
             Err(e) => {
-                warn!(error = %e, "LLM enrichment request failed — using regex summary");
-                return None;
+                warn!(error = %e, "LLM enrichment failed — using regex summary");
+                None
             }
-        };
-
-        if !response.status().is_success() {
-            warn!(
-                status = %response.status(),
-                "LLM enrichment returned non-2xx — using regex summary"
-            );
-            return None;
         }
-
-        let json: serde_json::Value = match response.json() {
-            Ok(j) => j,
-            Err(e) => {
-                warn!(error = %e, "Failed to parse LLM enrichment response — using regex summary");
-                return None;
-            }
-        };
-
-        let content_str = json
-            .pointer("/choices/0/message/content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-
-        parse_enrichment(&content_str)
     }
 
     fn acquire_slot(&self) -> Option<InFlightGuard> {
@@ -132,7 +109,7 @@ impl LlmEnricher {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct EnrichResult {
     layer: String,
     purpose: String,
@@ -153,30 +130,6 @@ impl Drop for InFlightGuard {
             condvar.notify_one();
         }
     }
-}
-
-fn build_request_body(file_path: &str, chunk_name: &str, snippet: &str) -> serde_json::Value {
-    let system = serde_json::json!({
-        "role": "system",
-        "content": "You are a code analysis assistant. Respond ONLY with valid JSON — no markdown fences, no extra text."
-    });
-
-    let user_content = format!(
-        "Analyze this code chunk and respond with EXACTLY this JSON (no other text):\n\
-        {{\"layer\": \"<handler|service|store|component|hook|type|config|test|other>\", \
-        \"purpose\": \"<one sentence, max 15 words>\", \
-        \"deps\": [\"SymbolA\", \"SymbolB\"]}}\n\n\
-        File: {file_path}\nChunk: {chunk_name}\n\n```\n{snippet}\n```"
-    );
-
-    let user = serde_json::json!({ "role": "user", "content": user_content });
-
-    serde_json::json!({
-        "messages": [system, user],
-        "max_tokens": MAX_OUTPUT_TOKENS,
-        "temperature": 0.0,
-        "caller_id": CALLER_ID
-    })
 }
 
 /// Parse raw LLM text into a formatted summary string.
@@ -248,6 +201,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_llm_enricher_enrich_returns_none_when_gateway_unreachable() {
+        let client = LlmGatewayClient::new(
+            reqwest::Client::new(),
+            "http://localhost:19999".to_string(),
+            None,
+        );
+        let enricher = LlmEnricher::new(client, 1);
+        let result = enricher.enrich("src/foo.rs", "bar_fn", "fn bar() {}");
+        assert!(result.is_none());
+    }
+
+    #[test]
     fn test_parse_enrichment_valid_json_returns_formatted_string() {
         let raw = r#"{"layer":"service","purpose":"Coordinates token budget enforcement across callers.","deps":["BudgetStore","CallerConfig"]}"#;
         let result = parse_enrichment(raw).unwrap();
@@ -282,15 +247,7 @@ mod tests {
         // Safety: remove the env var for this test; other tests are not using it.
         unsafe { std::env::remove_var("HERMES_LLM_GATEWAY_URL") };
         let enricher = LlmEnricher::from_env();
-        assert_eq!(enricher.gateway_url, DEFAULT_GATEWAY_URL);
-    }
-
-    #[test]
-    fn test_llm_enricher_enrich_returns_none_when_gateway_unreachable() {
-        // Port 19999 is not bound — request must fail fast within the 10s timeout.
-        let enricher = LlmEnricher::new("http://localhost:19999".to_string(), 1);
-        let result = enricher.enrich("src/foo.rs", "bar_fn", "fn bar() {}");
-        assert!(result.is_none());
+        assert_eq!(enricher.client.base_url(), DEFAULT_GATEWAY_URL);
     }
 
     #[test]

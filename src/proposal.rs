@@ -186,6 +186,31 @@ impl<'a> ProposalStore<'a> {
         self.get(proposal_id)
     }
 
+    /// Generic status update with transition validation.
+    ///
+    /// Allowed transitions:
+    /// - `pending` -> `edited` | `approved` | `rejected`
+    /// - `edited` -> `approved` | `rejected` | `pending`
+    /// - `approved` -> `completed`
+    /// - `rejected` -> terminal
+    /// - `completed` -> terminal
+    pub fn update_status(&self, proposal_id: &str, new_status: &str) -> Result<Proposal> {
+        let current = self.get(proposal_id)?;
+        if !is_valid_proposal_status_transition(&current.status, new_status) {
+            anyhow::bail!(
+                "invalid proposal status transition: {} -> {}",
+                current.status,
+                new_status
+            );
+        }
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE proposals SET status = ?1, updated_at = ?2 WHERE id = ?3",
+            params![new_status, now, proposal_id],
+        )?;
+        self.get(proposal_id)
+    }
+
     pub fn approve(&self, _engine: &crate::HermesEngine, conn: &Connection, proposal_id: &str) -> Result<Value> {
         let proposal = self.get(proposal_id)?;
         anyhow::ensure!(
@@ -216,4 +241,17 @@ impl<'a> ProposalStore<'a> {
             }
         }))
     }
+}
+
+fn is_valid_proposal_status_transition(from: &str, to: &str) -> bool {
+    matches!(
+        (from, to),
+        ("pending", "edited")
+            | ("pending", "approved")
+            | ("pending", "rejected")
+            | ("edited", "approved")
+            | ("edited", "rejected")
+            | ("edited", "pending")
+            | ("approved", "completed")
+    )
 }
