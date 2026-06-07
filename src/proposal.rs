@@ -255,3 +255,27 @@ fn is_valid_proposal_status_transition(from: &str, to: &str) -> bool {
             | ("approved", "completed")
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transition_matrix() {
+        // Valid transitions
+        assert!(is_valid_proposal_status_transition("pending", "edited"));
+        assert!(is_valid_proposal_status_transition("pending", "approved"));
+        assert!(is_valid_proposal_status_transition("pending", "rejected"));
+        assert!(is_valid_proposal_status_transition("edited", "approved"));
+        assert!(is_valid_proposal_status_transition("edited", "rejected"));
+        assert!(is_valid_proposal_status_transition("edited", "pending"));
+        assert!(is_valid_proposal_status_transition("approved", "completed"));
+
+        // Invalid transitions
+        assert!(!is_valid_proposal_status_transition("edited", "completed"));
+        assert!(!is_valid_proposal_status_transition("pending", "completed"));
+        assert!(!is_valid_proposal_status_transition("rejected", "approved"));
+        assert!(!is_valid_proposal_status_transition("completed", "pending"));
+        assert!(!is_valid_proposal_status_transition("approved", "rejected"));
+    }
+}

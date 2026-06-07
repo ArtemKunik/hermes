@@ -20,9 +20,9 @@ use crate::HermesEngine;
 pub fn routes(engine: Arc<HermesEngine>) -> Router {
     Router::new()
         .route("/", get(list_missions))
-        .route("/:id", get(get_mission))
-        .route("/:id/events", post(append_event))
-        .route("/:id/status", post(update_status))
+        .route("/{id}", get(get_mission))
+        .route("/{id}/events", post(append_event))
+        .route("/{id}/status", post(update_status))
         .with_state(engine)
 }
 
@@ -57,8 +57,8 @@ async fn get_mission(
 ) -> ApiResult<Json<Value>> {
     let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = MissionStore::new(&conn, engine.project_id());
-    let m = store.get(&id).map_err(ApiError::internal)?;
-    let log = store.get_log(&id).map_err(ApiError::internal)?;
+    let m = store.get(&id)?;
+    let log = store.get_log(&id)?;
     Ok(Json(json!({
         "mission": m,
         "log": log,
@@ -83,10 +83,9 @@ async fn append_event(
     let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = MissionStore::new(&conn, engine.project_id());
     // Touch the mission first to ensure it exists
-    let _ = store.get(&id).map_err(ApiError::internal)?;
+    let _ = store.get(&id)?;
     store
-        .append_log(&id, &body.event_type, body.data.as_ref().unwrap_or(&Value::Null))
-        .map_err(ApiError::internal)?;
+        .append_log(&id, &body.event_type, body.data.as_ref().unwrap_or(&Value::Null))?;
     Ok((StatusCode::CREATED, Json(json!({ "ok": true }))))
 }
 
@@ -105,8 +104,6 @@ async fn update_status(
     }
     let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = MissionStore::new(&conn, engine.project_id());
-    let updated = store
-        .update_status(&id, &body.status)
-        .map_err(ApiError::internal)?;
+    let updated = store.update_status(&id, &body.status)?;
     Ok(Json(serde_json::to_value(updated).unwrap_or_default()))
 }

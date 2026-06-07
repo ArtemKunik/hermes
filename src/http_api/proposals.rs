@@ -21,8 +21,8 @@ use crate::HermesEngine;
 pub fn routes(engine: Arc<HermesEngine>) -> Router {
     Router::new()
         .route("/", post(create_proposals).get(list_proposals))
-        .route("/:id", get(get_proposal))
-        .route("/:id/status", patch(update_proposal_status))
+        .route("/{id}", get(get_proposal))
+        .route("/{id}/status", patch(update_proposal_status))
         .with_state(engine)
 }
 
@@ -79,7 +79,7 @@ async fn get_proposal(
 ) -> ApiResult<Json<Value>> {
     let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = ProposalStore::new(&conn, engine.project_id());
-    let p = store.get(&id).map_err(ApiError::internal)?;
+    let p = store.get(&id)?;
     Ok(Json(serde_json::to_value(p).unwrap_or_default()))
 }
 
@@ -102,9 +102,7 @@ async fn update_proposal_status(
 
     let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = ProposalStore::new(&conn, engine.project_id());
-    let updated = store
-        .update_status(&id, &body.status)
-        .map_err(ApiError::internal)?;
+    let updated = store.update_status(&id, &body.status)?;
     Ok(Json(serde_json::to_value(updated).unwrap_or_default()))
 }
 
