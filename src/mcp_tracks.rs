@@ -56,7 +56,11 @@ pub(crate) struct TrackDocSet {
     pub(crate) remaining: Vec<String>,
 }
 
-pub fn tool_list_tracks(engine: &HermesEngine, project_root: &Path, args: &Value) -> Result<String> {
+pub fn tool_list_tracks(
+    engine: &HermesEngine,
+    project_root: &Path,
+    args: &Value,
+) -> Result<String> {
     let db = engine.read_db().lock().unwrap_or_else(|e| e.into_inner());
     tool_list_tracks_with_conn(engine, &db, project_root, args)
 }
@@ -87,7 +91,11 @@ pub fn tool_list_tracks_with_conn(
     Ok(serde_json::to_string_pretty(&filtered)?)
 }
 
-pub fn tool_resume_track(engine: &HermesEngine, project_root: &Path, args: &Value) -> Result<String> {
+pub fn tool_resume_track(
+    engine: &HermesEngine,
+    project_root: &Path,
+    args: &Value,
+) -> Result<String> {
     let db = engine.read_db().lock().unwrap_or_else(|e| e.into_inner());
     tool_resume_track_with_conn(engine, &db, project_root, args)
 }
@@ -99,7 +107,10 @@ pub fn tool_resume_track_with_conn(
     args: &Value,
 ) -> Result<String> {
     let tracks = load_tracks(project_root)?;
-    let requested_id = args["track_id"].as_str().map(str::trim).filter(|id| !id.is_empty());
+    let requested_id = args["track_id"]
+        .as_str()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
     let filter = args["status"].as_str().unwrap_or("unfinished");
     let selected = if let Some(track_id) = requested_id {
         tracks
@@ -110,7 +121,9 @@ pub fn tool_resume_track_with_conn(
     } else if args["auto"].as_bool().unwrap_or(false) {
         pick_best_track(&tracks, filter)?
     } else {
-        return Err(anyhow!("hermes_resume_track requires 'track_id' or auto=true"));
+        return Err(anyhow!(
+            "hermes_resume_track requires 'track_id' or auto=true"
+        ));
     };
 
     if selected.status == "conflict" {
@@ -123,20 +136,37 @@ pub fn tool_resume_track_with_conn(
     let reason = if requested_id.is_some() {
         "explicitly requested".to_string()
     } else {
-        format!("auto-selected (score={}, status={})", rank_track(&selected), selected.status)
+        format!(
+            "auto-selected (score={}, status={})",
+            rank_track(&selected),
+            selected.status
+        )
     };
 
     let hits = find_memory_hits(project_root, &selected.track_id, 20)?;
-    let sessions = hits.iter().filter(|h| h.contains("sessions")).cloned().collect();
-    let decisions = hits.iter().filter(|h| h.contains("decisions")).cloned().collect();
+    let sessions = hits
+        .iter()
+        .filter(|h| h.contains("sessions"))
+        .cloned()
+        .collect();
+    let decisions = hits
+        .iter()
+        .filter(|h| h.contains("decisions"))
+        .cloned()
+        .collect();
     let commits = git_track_commits(project_root, &selected.track_id)?;
 
     let continuation_prompt = format!(
         "I'm resuming work on {}: {}. My current status is {}. {} remaining tasks. \
          The immediate next step is: {}",
-        selected.track_id, selected.title, selected.status,
+        selected.track_id,
+        selected.title,
+        selected.status,
         selected.remaining.len(),
-        selected.next_step.as_deref().unwrap_or("continue investigation")
+        selected
+            .next_step
+            .as_deref()
+            .unwrap_or("continue investigation")
     );
 
     let brief = ResumeBrief {
@@ -163,7 +193,9 @@ pub fn tool_resume_track_with_conn(
 pub(crate) fn load_tracks(root: &Path) -> Result<Vec<TrackDocSet>> {
     let mut tracks = Vec::new();
     let tracks_dir = root.join("conductor").join("tracks");
-    if !tracks_dir.exists() { return Ok(tracks); }
+    if !tracks_dir.exists() {
+        return Ok(tracks);
+    }
 
     for entry in fs::read_dir(tracks_dir)? {
         let entry = entry?;
@@ -202,16 +234,18 @@ fn parse_track_dir(path: &Path, track_id: &str) -> Result<TrackDocSet> {
         paths.dedup();
         paths
     };
-    
+
     let done = extract_items(&plan_md, "- [x] ");
     let remaining = extract_items(&plan_md, "- [ ] ");
     let completion_pct = compute_completion_pct(done.len(), remaining.len());
     let next_step = remaining.first().cloned();
 
     let mtime = latest_modified_at(path);
-    let stale_docs = status == "conflict" || updated_at.as_ref()
-        .map(|u| mtime.as_deref().unwrap_or_default() > u.as_str())
-        .unwrap_or(false);
+    let stale_docs = status == "conflict"
+        || updated_at
+            .as_ref()
+            .map(|u| mtime.as_deref().unwrap_or_default() > u.as_str())
+            .unwrap_or(false);
 
     Ok(TrackDocSet {
         track_id: track_id.to_string(),
@@ -222,7 +256,11 @@ fn parse_track_dir(path: &Path, track_id: &str) -> Result<TrackDocSet> {
         next_step,
         related_files,
         updated_at: mtime,
-        status_detail: format!("{}/{} tasks complete", done.len(), done.len() + remaining.len()),
+        status_detail: format!(
+            "{}/{} tasks complete",
+            done.len(),
+            done.len() + remaining.len()
+        ),
         done,
         remaining,
     })
@@ -274,7 +312,8 @@ fn merge_status(index_status: Option<&str>, plan_status: Option<&str>) -> String
 }
 
 pub(crate) fn pick_best_track(tracks: &[TrackDocSet], filter: &str) -> Result<TrackDocSet> {
-    tracks.iter()
+    tracks
+        .iter()
         .filter(|t| matches_filter(&t.status, filter))
         .max_by_key(|track| rank_track(track))
         .cloned()
@@ -282,8 +321,16 @@ pub(crate) fn pick_best_track(tracks: &[TrackDocSet], filter: &str) -> Result<Tr
 }
 
 fn rank_track(track: &TrackDocSet) -> i64 {
-    let status_bonus = if track.status == "in-progress" { 1000 } else { 0 };
-    let action_bonus = if track.next_step.is_some() || !track.remaining.is_empty() { 200 } else { -1200 };
+    let status_bonus = if track.status == "in-progress" {
+        1000
+    } else {
+        0
+    };
+    let action_bonus = if track.next_step.is_some() || !track.remaining.is_empty() {
+        200
+    } else {
+        -1200
+    };
     status_bonus + action_bonus - track.completion_pct as i64
 }
 

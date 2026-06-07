@@ -1,10 +1,10 @@
 // tools/hermes-engine/src/mcp_memory/recall.rs
-use anyhow::Result;
-use crate::HermesEngine;
-use crate::graph::KnowledgeGraph;
-use crate::search::SearchEngine;
-use crate::pointer::Pointer;
 use crate::accounting::Accountant;
+use crate::graph::KnowledgeGraph;
+use crate::pointer::Pointer;
+use crate::search::SearchEngine;
+use crate::HermesEngine;
+use anyhow::Result;
 
 const RECALL_AVOIDANCE_MULTIPLIER: u64 = 7;
 const SESSION_HIT_AVOIDANCE_ESTIMATE: u64 = 1_500;
@@ -29,7 +29,7 @@ pub fn tool_recall_with_conn(
 
     let mut decision_briefs: Vec<serde_json::Value> = Vec::new();
     let mut fetched_tokens: u64 = 0;
-    
+
     let mut decision_pointers = Vec::new();
     let mut session_pointers = Vec::new();
     for p in &memory_pointers {
@@ -81,11 +81,7 @@ pub fn tool_recall_with_conn(
     let tokens_saved = avoidance_estimate.saturating_sub(pointer_tokens + fetched_tokens);
 
     let memory_hits = (decision_pointers.len() + session_pointers.len()) as u64;
-    let acct = Accountant::new_with_conn(
-        conn,
-        engine.project_id(),
-        engine.session_id(),
-    );
+    let acct = Accountant::new_with_conn(conn, engine.project_id(), engine.session_id());
     acct.record_query_with_memory(
         &format!("recall:{query}"),
         pointer_tokens,
@@ -115,27 +111,47 @@ pub fn tool_recall_with_conn(
     }))?)
 }
 
-fn recall_memory_search(engine: &HermesEngine, graph: &KnowledgeGraph, query: &str, top_k: usize) -> Result<Vec<Pointer>> {
+fn recall_memory_search(
+    engine: &HermesEngine,
+    graph: &KnowledgeGraph,
+    query: &str,
+    top_k: usize,
+) -> Result<Vec<Pointer>> {
     let search = SearchEngine::new(graph, engine.search_cache());
-    let words: Vec<&str> = query.split_whitespace().take(RECALL_MAX_QUERY_WORDS).collect();
+    let words: Vec<&str> = query
+        .split_whitespace()
+        .take(RECALL_MAX_QUERY_WORDS)
+        .collect();
     let mut results = search.search(&words.join(" "), top_k, &crate::search::SearchMode::Smart)?;
-    
-    results.pointers.retain(|p| 
-        crate::ingestion::crawler::is_memory_path(&p.source) ||
-        crate::ingestion::crawler::is_decision_path(&p.source)
-    );
+
+    results.pointers.retain(|p| {
+        crate::ingestion::crawler::is_memory_path(&p.source)
+            || crate::ingestion::crawler::is_decision_path(&p.source)
+    });
     Ok(results.pointers)
 }
 
-fn recall_related_code_search(engine: &HermesEngine, graph: &KnowledgeGraph, query: &str, top_k: usize) -> Result<Vec<Pointer>> {
+fn recall_related_code_search(
+    engine: &HermesEngine,
+    graph: &KnowledgeGraph,
+    query: &str,
+    top_k: usize,
+) -> Result<Vec<Pointer>> {
     let search = SearchEngine::new(graph, engine.search_cache());
-    let words: Vec<&str> = query.split_whitespace().take(RECALL_MAX_QUERY_WORDS).collect();
-    let mut results = search.search(&words.join(" "), top_k * 2, &crate::search::SearchMode::Smart)?;
-    
-    results.pointers.retain(|p| 
-        !crate::ingestion::crawler::is_memory_path(&p.source) &&
-        !crate::ingestion::crawler::is_decision_path(&p.source)
-    );
+    let words: Vec<&str> = query
+        .split_whitespace()
+        .take(RECALL_MAX_QUERY_WORDS)
+        .collect();
+    let mut results = search.search(
+        &words.join(" "),
+        top_k * 2,
+        &crate::search::SearchMode::Smart,
+    )?;
+
+    results.pointers.retain(|p| {
+        !crate::ingestion::crawler::is_memory_path(&p.source)
+            && !crate::ingestion::crawler::is_decision_path(&p.source)
+    });
     results.pointers.truncate(top_k);
     Ok(results.pointers)
 }

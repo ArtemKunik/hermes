@@ -1,7 +1,7 @@
 // tools/hermes-engine/src/bin/hermes/handlers_advanced.rs
 use anyhow::Result;
-use hermes_engine::{mcp_commit, mcp_lint, mcp_heal};
 use hermes_engine::HermesEngine;
+use hermes_engine::{mcp_commit, mcp_heal, mcp_lint};
 
 pub fn cmd_lint_architecture(
     engine: &HermesEngine,
@@ -18,7 +18,8 @@ pub fn cmd_lint_architecture(
         lint_args["severity_min"] = serde_json::Value::String(sev.to_string());
     }
     if let Some(r) = rules {
-        let ids: Vec<serde_json::Value> = r.split(',')
+        let ids: Vec<serde_json::Value> = r
+            .split(',')
             .map(|s| serde_json::Value::String(s.trim().to_string()))
             .collect();
         lint_args["rules"] = serde_json::Value::Array(ids);

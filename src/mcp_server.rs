@@ -95,7 +95,9 @@ fn spawn_auto_session_checkpoint(engine: HermesEngine, project_root: std::path::
         .unwrap_or(600);
 
     if interval_secs == 0 {
-        eprintln!("[hermes] session checkpoint disabled (HERMES_SESSION_CHECKPOINT_INTERVAL_SECS=0)");
+        eprintln!(
+            "[hermes] session checkpoint disabled (HERMES_SESSION_CHECKPOINT_INTERVAL_SECS=0)"
+        );
         return;
     }
 
@@ -221,9 +223,7 @@ fn dispatch_with_lock_retry(actor: &ToolActor, method: &str, params: &Value) -> 
         match call_result {
             Ok(Ok(value)) => {
                 if attempt > 0 {
-                    eprintln!(
-                        "[hermes] sqlite lock recovered method={method} attempts={attempt}"
-                    );
+                    eprintln!("[hermes] sqlite lock recovered method={method} attempts={attempt}");
                 }
                 return Ok(value);
             }
@@ -252,7 +252,7 @@ fn dispatch_with_lock_retry(actor: &ToolActor, method: &str, params: &Value) -> 
                 eprintln!("[hermes] tool handler panicked method={method}");
                 return Err(anyhow::anyhow!(
                     "tool handler panicked while processing {method}"
-                ))
+                ));
             }
         }
     }

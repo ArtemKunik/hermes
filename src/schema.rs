@@ -187,4 +187,6 @@ CREATE VIRTUAL TABLE fts_content USING fts5(
 );
 ";
 
-#[cfg(test)] #[path = "schema_tests.rs"] mod tests;
+#[cfg(test)]
+#[path = "schema_tests.rs"]
+mod tests;

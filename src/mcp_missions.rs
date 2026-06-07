@@ -19,9 +19,12 @@ pub fn tool_mission_start(
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("mission_start requires 'title'"))?;
     let description = args["description"].as_str();
-    let tags = args["tags"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(","));
+    let tags = args["tags"].as_array().map(|a| {
+        a.iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
+    });
 
     let store = MissionStore::new(conn, engine.project_id());
     let mission = store.create(title, description, tags.as_deref())?;
@@ -85,11 +88,7 @@ pub fn tool_mission_update(
 }
 
 /// `hermes_mission_list` — list missions with optional status filter.
-pub fn tool_mission_list(
-    engine: &HermesEngine,
-    conn: &Connection,
-    args: &Value,
-) -> Result<String> {
+pub fn tool_mission_list(engine: &HermesEngine, conn: &Connection, args: &Value) -> Result<String> {
     let status = args["status"].as_str();
     let limit = args["limit"].as_u64().unwrap_or(20) as usize;
     let store = MissionStore::new(conn, engine.project_id());
@@ -167,10 +166,14 @@ pub fn tool_mission_heartbeat(
         .ok_or_else(|| anyhow::anyhow!("mission_heartbeat requires 'mission_id'"))?;
 
     let store = MissionStore::new(conn, engine.project_id());
-    store.append_log(mission_id, "heartbeat", &json!({
-        "session_id": args["session_id"].as_str().unwrap_or("unknown"),
-        "ts": chrono::Utc::now().to_rfc3339(),
-    }))?;
+    store.append_log(
+        mission_id,
+        "heartbeat",
+        &json!({
+            "session_id": args["session_id"].as_str().unwrap_or("unknown"),
+            "ts": chrono::Utc::now().to_rfc3339(),
+        }),
+    )?;
     let log = store.get_log(mission_id)?;
     Ok(serde_json::to_string_pretty(&json!({
         "mission_id": mission_id,

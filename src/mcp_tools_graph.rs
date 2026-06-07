@@ -15,7 +15,10 @@ use crate::{accounting::Accountant, blast_radius, HermesEngine};
 /// enums, interfaces) ranked by incoming edge count (xref frequency).
 /// Packs symbols into the output until `max_tokens` is reached.
 pub fn tool_repo_map(engine: &HermesEngine, max_tokens: usize) -> Result<String> {
-    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let project_id = engine.project_id();
 
     let mut stmt = conn.prepare(
@@ -76,10 +79,19 @@ pub fn tool_repo_map(engine: &HermesEngine, max_tokens: usize) -> Result<String>
     let total_symbols = rows.len();
     drop(stmt);
     drop(conn);
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
     let ptr_tokens = token_count as u64;
     let traditional = (total_symbols as u64).saturating_mul(60).max(ptr_tokens);
-    let _ = acct.record_query(&format!("repo_map:{max_tokens}"), ptr_tokens, 0, traditional);
+    let _ = acct.record_query(
+        &format!("repo_map:{max_tokens}"),
+        ptr_tokens,
+        0,
+        traditional,
+    );
 
     Ok(serde_json::to_string_pretty(&json!({
         "total_symbols": total_symbols,
@@ -95,7 +107,10 @@ pub fn tool_repo_map(engine: &HermesEngine, max_tokens: usize) -> Result<String>
 /// Traces incoming edges (Calls, Imports, Uses) up the graph to find
 /// all direct and indirect dependencies.
 pub fn tool_impact_analysis(engine: &HermesEngine, symbol_name: &str) -> Result<String> {
-    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let project_id = engine.project_id();
 
     // 1. Find the target node(s)
@@ -169,7 +184,11 @@ pub fn tool_impact_analysis(engine: &HermesEngine, symbol_name: &str) -> Result<
     let blast_info = get_blast_info(&conn, project_id, symbol_name);
     drop(stmt);
     drop(conn);
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
     let ptr_tokens = ((impact_len + target_len) as u64).saturating_mul(40);
     let _ = acct.record_query(
         &format!("impact:{symbol_name}"),
@@ -188,7 +207,10 @@ pub fn tool_impact_analysis(engine: &HermesEngine, symbol_name: &str) -> Result<
 
 /// Look up the blast-radius score for a specific node or file path.
 pub fn tool_blast_score(engine: &HermesEngine, query: &str) -> Result<String> {
-    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let project_id = engine.project_id();
 
     match crate::blast_radius::get_blast_score(&conn, project_id, query) {
@@ -211,21 +233,27 @@ pub fn tool_blast_score(engine: &HermesEngine, query: &str) -> Result<String> {
 
 /// Get top-N files/symbols by blast score above a threshold.
 pub fn tool_high_blast(engine: &HermesEngine, threshold: f64, limit: usize) -> Result<String> {
-    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let project_id = engine.project_id();
 
     let scores = crate::blast_radius::get_high_blast(&conn, project_id, threshold, limit)?;
 
-    let items: Vec<serde_json::Value> = scores.iter().map(|s| {
-        json!({
-            "node_id": s.node_id,
-            "file_path": s.file_path,
-            "direct_dependents": s.direct_count,
-            "transitive_dependents": s.transitive_count,
-            "blast_score": s.blast_score,
-            "risk_level": s.risk_level.as_str()
+    let items: Vec<serde_json::Value> = scores
+        .iter()
+        .map(|s| {
+            json!({
+                "node_id": s.node_id,
+                "file_path": s.file_path,
+                "direct_dependents": s.direct_count,
+                "transitive_dependents": s.transitive_count,
+                "blast_score": s.blast_score,
+                "risk_level": s.risk_level.as_str()
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(serde_json::to_string_pretty(&json!({
         "threshold": threshold,
@@ -236,7 +264,11 @@ pub fn tool_high_blast(engine: &HermesEngine, threshold: f64, limit: usize) -> R
 }
 
 /// Helper: look up blast info for a symbol name in impact_analysis.
-fn get_blast_info(conn: &SqliteConnection, project_id: &str, symbol_name: &str) -> serde_json::Value {
+fn get_blast_info(
+    conn: &SqliteConnection,
+    project_id: &str,
+    symbol_name: &str,
+) -> serde_json::Value {
     match blast_radius::get_blast_score(conn, project_id, symbol_name) {
         Ok(Some(score)) => json!({
             "found": true,
@@ -252,7 +284,9 @@ fn get_blast_info(conn: &SqliteConnection, project_id: &str, symbol_name: &str) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{graph::KnowledgeGraph, graph::NodeType, graph_builders::NodeBuilder, HermesEngine};
+    use crate::{
+        graph::KnowledgeGraph, graph::NodeType, graph_builders::NodeBuilder, HermesEngine,
+    };
 
     #[test]
     fn test_repo_map_empty_graph() {

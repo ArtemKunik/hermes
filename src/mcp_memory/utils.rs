@@ -1,9 +1,9 @@
 // tools/hermes-engine/src/mcp_memory/utils.rs
-use anyhow::Result;
-use std::path::Path;
-use crate::HermesEngine;
 use crate::graph::KnowledgeGraph;
 use crate::ingestion::IngestionPipeline;
+use crate::HermesEngine;
+use anyhow::Result;
+use std::path::Path;
 
 pub(crate) fn ingest_single_file(engine: &HermesEngine, path: &Path) -> Result<()> {
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());

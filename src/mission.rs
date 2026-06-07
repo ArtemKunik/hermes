@@ -100,7 +100,12 @@ impl<'a> MissionStore<'a> {
         Self { conn, project_id }
     }
 
-    pub fn create(&self, title: &str, description: Option<&str>, tags: Option<&str>) -> Result<Mission> {
+    pub fn create(
+        &self,
+        title: &str,
+        description: Option<&str>,
+        tags: Option<&str>,
+    ) -> Result<Mission> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let tags_val = tags.unwrap_or("[]");
@@ -208,9 +213,7 @@ impl<'a> MissionStore<'a> {
                         created_at, updated_at
                  FROM missions
                  ORDER BY updated_at DESC LIMIT ?1",
-                vec![
-                    rusqlite::types::Value::from(limit as i64),
-                ],
+                vec![rusqlite::types::Value::from(limit as i64)],
             )
         };
         let mut stmt = self.conn.prepare(sql)?;

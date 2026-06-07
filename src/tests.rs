@@ -124,9 +124,8 @@ fn test_index_returns_busy_when_lock_exists() {
     std::fs::write(temp.path().join(".hermes.index.lock"), "locked").unwrap();
 
     let engine = HermesEngine::in_memory("test-index-busy").unwrap();
-    let conn = engine.db().lock().unwrap();
     let result: serde_json::Value =
-        serde_json::from_str(&crate::mcp_tools::tool_index(&engine, &conn, temp.path()).unwrap()).unwrap();
+        serde_json::from_str(&crate::mcp_tools::tool_index(&engine, temp.path()).unwrap()).unwrap();
 
     assert_eq!(result["status"], "busy");
     assert_eq!(result["non_blocking"], true);

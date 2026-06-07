@@ -123,7 +123,10 @@ mod tests {
 
     #[test]
     fn classify_handler() {
-        assert_eq!(classify_file("src/handlers/task_handler.rs"), Layer::Handler);
+        assert_eq!(
+            classify_file("src/handlers/task_handler.rs"),
+            Layer::Handler
+        );
     }
 
     #[test]
@@ -139,7 +142,10 @@ mod tests {
 
     #[test]
     fn classify_component() {
-        assert_eq!(classify_file("src/components/TaskList.tsx"), Layer::Component);
+        assert_eq!(
+            classify_file("src/components/TaskList.tsx"),
+            Layer::Component
+        );
     }
 
     #[test]

@@ -14,7 +14,8 @@ impl Accountant {
                 "SELECT COUNT(*) FROM memory_stats
                  WHERE project_id = ?1 AND event_type = 'session_saved'{time_clause}"
             );
-            let sessions_saved: u64 = conn.query_row(&sql, params![self.project_id], |r| r.get(0))?;
+            let sessions_saved: u64 =
+                conn.query_row(&sql, params![self.project_id], |r| r.get(0))?;
 
             let sql = format!(
                 "SELECT COUNT(*),
@@ -22,8 +23,8 @@ impl Accountant {
                         COALESCE(SUM(memory_hits), 0)
                  FROM accounting WHERE project_id = ?1{time_clause}"
             );
-            let (total_searches, searches_with_hits, total_hits): (u64, u64, u64) =
-                conn.query_row(&sql, params![self.project_id], |r| {
+            let (total_searches, searches_with_hits, total_hits): (u64, u64, u64) = conn
+                .query_row(&sql, params![self.project_id], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?))
                 })?;
 

@@ -57,10 +57,19 @@ mod tests {
         let mut extractor = XrefExtractor::new().unwrap();
         let content = "use crate::graph::EdgeType;\nuse std::collections::HashMap;\n";
         let xrefs = extractor.extract(content, "src/lib.rs");
-        let imports: Vec<_> = xrefs.iter().filter(|x| x.kind == XrefKind::Imports).collect();
+        let imports: Vec<_> = xrefs
+            .iter()
+            .filter(|x| x.kind == XrefKind::Imports)
+            .collect();
         let names: Vec<&str> = imports.iter().map(|x| x.to_name.as_str()).collect();
-        assert!(names.contains(&"EdgeType"), "expected EdgeType import, got {names:?}");
-        assert!(names.contains(&"HashMap"), "expected HashMap import, got {names:?}");
+        assert!(
+            names.contains(&"EdgeType"),
+            "expected EdgeType import, got {names:?}"
+        );
+        assert!(
+            names.contains(&"HashMap"),
+            "expected HashMap import, got {names:?}"
+        );
     }
 
     #[cfg(feature = "ast")]
@@ -81,7 +90,10 @@ mod tests {
         let mut extractor = XrefExtractor::new().unwrap();
         let content = "import { verifyToken } from './auth';";
         let xrefs = extractor.extract(content, "test.ts");
-        assert!(xrefs.iter().any(|x| x.to_name == "verifyToken"), "expected import xref");
+        assert!(
+            xrefs.iter().any(|x| x.to_name == "verifyToken"),
+            "expected import xref"
+        );
     }
 
     #[cfg(feature = "ast")]
@@ -90,7 +102,10 @@ mod tests {
         let mut extractor = XrefExtractor::new().unwrap();
         let content = "from mylib import helper\n";
         let xrefs = extractor.extract(content, "test.py");
-        assert!(xrefs.iter().any(|x| x.to_name == "helper"), "expected import xref");
+        assert!(
+            xrefs.iter().any(|x| x.to_name == "helper"),
+            "expected import xref"
+        );
     }
 
     #[cfg(feature = "ast")]

@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::http_api::error::{ApiError, ApiResult};
-use crate::mission::{MissionStore, MissionStatus};
+use crate::mission::{MissionStatus, MissionStore};
 use crate::HermesEngine;
 
 pub fn routes(engine: Arc<HermesEngine>) -> Router {
@@ -39,7 +39,10 @@ async fn list_missions(
     Query(q): Query<ListQuery>,
 ) -> ApiResult<Json<Value>> {
     let limit = q.limit.unwrap_or(50);
-    let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
+    let conn = engine
+        .db()
+        .lock()
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = MissionStore::new(&conn, engine.project_id());
     let items = store
         .list(q.status.as_deref(), limit)
@@ -55,7 +58,10 @@ async fn get_mission(
     State(engine): State<Arc<HermesEngine>>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
+    let conn = engine
+        .db()
+        .lock()
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = MissionStore::new(&conn, engine.project_id());
     let m = store.get(&id)?;
     let log = store.get_log(&id)?;
@@ -80,12 +86,18 @@ async fn append_event(
     if body.event_type.is_empty() {
         return Err(ApiError::bad_request("event_type is required"));
     }
-    let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
+    let conn = engine
+        .db()
+        .lock()
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = MissionStore::new(&conn, engine.project_id());
     // Touch the mission first to ensure it exists
     let _ = store.get(&id)?;
-    store
-        .append_log(&id, &body.event_type, body.data.as_ref().unwrap_or(&Value::Null))?;
+    store.append_log(
+        &id,
+        &body.event_type,
+        body.data.as_ref().unwrap_or(&Value::Null),
+    )?;
     Ok((StatusCode::CREATED, Json(json!({ "ok": true }))))
 }
 
@@ -100,9 +112,15 @@ async fn update_status(
     Json(body): Json<UpdateStatusBody>,
 ) -> ApiResult<Json<Value>> {
     if MissionStatus::parse(&body.status).is_none() {
-        return Err(ApiError::bad_request(format!("invalid status '{}'", body.status)));
+        return Err(ApiError::bad_request(format!(
+            "invalid status '{}'",
+            body.status
+        )));
     }
-    let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
+    let conn = engine
+        .db()
+        .lock()
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = MissionStore::new(&conn, engine.project_id());
     let updated = store.update_status(&id, &body.status)?;
     Ok(Json(serde_json::to_value(updated).unwrap_or_default()))

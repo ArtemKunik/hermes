@@ -50,8 +50,7 @@ struct HitPayload {
 ///
 /// Returns an error if Qdrant is unreachable or the collection does not exist.
 pub fn tool_query_memory(query: &str, limit: usize) -> Result<String> {
-    let qdrant_url = std::env::var("QDRANT_URL")
-        .unwrap_or_else(|_| DEFAULT_QDRANT_URL.to_string());
+    let qdrant_url = std::env::var("QDRANT_URL").unwrap_or_else(|_| DEFAULT_QDRANT_URL.to_string());
     let qdrant_url = qdrant_url.trim_end_matches('/').to_string();
 
     // Run async embedding + Qdrant query inside a dedicated single-threaded runtime.
@@ -127,7 +126,11 @@ pub fn tool_query_memory(query: &str, limit: usize) -> Result<String> {
 
 /// Variant of `tool_query_memory` that accepts a database connection for read isolation.
 /// (The connection is not used but accepted for symmetry with other tools).
-pub fn tool_query_memory_with_conn(_conn: &rusqlite::Connection, query: &str, limit: usize) -> Result<String> {
+pub fn tool_query_memory_with_conn(
+    _conn: &rusqlite::Connection,
+    query: &str,
+    limit: usize,
+) -> Result<String> {
     tool_query_memory(query, limit)
 }
 
@@ -135,12 +138,13 @@ pub fn tool_query_memory_with_conn(_conn: &rusqlite::Connection, query: &str, li
 /// Core facts are foundational context about the project's purpose and architecture.
 pub fn tool_get_core_facts(project_root: &Path) -> Result<String> {
     let facts_path = project_root.join("memory").join("CORE_FACTS.md");
-    
+
     if !facts_path.exists() {
         return Ok(json!({
             "status": "not_found",
             "message": "memory/CORE_FACTS.md does not exist in this project."
-        }).to_string());
+        })
+        .to_string());
     }
 
     let content = std::fs::read_to_string(&facts_path)
@@ -150,10 +154,14 @@ pub fn tool_get_core_facts(project_root: &Path) -> Result<String> {
         "status": "ok",
         "path": "memory/CORE_FACTS.md",
         "content": content
-    }).to_string())
+    })
+    .to_string())
 }
 
 /// Variant of `tool_get_core_facts` that accepts a database connection for read isolation.
-pub fn tool_get_core_facts_with_conn(_conn: &rusqlite::Connection, project_root: &Path) -> Result<String> {
+pub fn tool_get_core_facts_with_conn(
+    _conn: &rusqlite::Connection,
+    project_root: &Path,
+) -> Result<String> {
     tool_get_core_facts(project_root)
 }

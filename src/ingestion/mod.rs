@@ -79,7 +79,11 @@ impl<'a> IngestionPipeline<'a> {
             let path_str = normalize_logical_path(&file_path.to_string_lossy());
             {
                 let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-                let _ = crate::symbol_index::clear_file_symbols(&conn, self.graph.project_id(), &path_str);
+                let _ = crate::symbol_index::clear_file_symbols(
+                    &conn,
+                    self.graph.project_id(),
+                    &path_str,
+                );
             }
             let _ = self.graph.delete_nodes_for_file(&path_str);
         }
@@ -130,8 +134,7 @@ impl<'a> IngestionPipeline<'a> {
                 if self.is_ast_supported_file(file_path) {
                     if let Ok(raw) = std::fs::read(file_path) {
                         let content = String::from_utf8_lossy(&raw);
-                        let path_str =
-                            normalize_logical_path(&file_path.to_string_lossy());
+                        let path_str = normalize_logical_path(&file_path.to_string_lossy());
                         let file_node_id = self
                             .graph
                             .create_node_builder()
@@ -151,7 +154,9 @@ impl<'a> IngestionPipeline<'a> {
 
             // Recompute blast-radius scores after xref edges are added.
             let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-            if let Ok(count) = crate::blast_radius::compute_all_blast_scores(&conn, self.graph.project_id()) {
+            if let Ok(count) =
+                crate::blast_radius::compute_all_blast_scores(&conn, self.graph.project_id())
+            {
                 info!(count, "Recomputed blast-radius scores");
             }
         }
@@ -174,7 +179,11 @@ impl<'a> IngestionPipeline<'a> {
         for stale_path in db_paths.difference(crawled_paths) {
             {
                 let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-                let _ = crate::symbol_index::clear_file_symbols(&conn, self.graph.project_id(), stale_path);
+                let _ = crate::symbol_index::clear_file_symbols(
+                    &conn,
+                    self.graph.project_id(),
+                    stale_path,
+                );
             }
             self.graph.delete_nodes_for_file(stale_path)?;
             info!(path = %stale_path, "Removed stale nodes for deleted file");

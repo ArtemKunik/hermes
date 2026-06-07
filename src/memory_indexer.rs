@@ -143,8 +143,8 @@ pub struct MemoryIndexer {
 
 impl MemoryIndexer {
     pub fn new() -> Result<Self> {
-        let qdrant_url = std::env::var("QDRANT_URL")
-            .unwrap_or_else(|_| DEFAULT_QDRANT_URL.to_string());
+        let qdrant_url =
+            std::env::var("QDRANT_URL").unwrap_or_else(|_| DEFAULT_QDRANT_URL.to_string());
         let generator = EmbeddingGenerator::new()?;
         Ok(Self {
             qdrant_url,
@@ -259,32 +259,19 @@ impl MemoryIndexer {
             self.qdrant_url
         );
         let body = serde_json::json!({ "ids": [id], "with_payload": true });
-        let resp = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .ok()?;
+        let resp = self.client.post(&url).json(&body).send().await.ok()?;
 
         if !resp.status().is_success() {
             return None;
         }
 
         let json: serde_json::Value = resp.json().await.ok()?;
-        json["result"]
-            .as_array()?
-            .first()?
-            ["payload"]["last_modified"]
-            .as_i64()
+        json["result"].as_array()?.first()?["payload"]["last_modified"].as_i64()
     }
 
     /// Upserts a single point into Qdrant.
     async fn upsert_point(&self, id: u64, chunk: &MemoryChunk, embedding: &[f32]) -> Result<()> {
-        let url = format!(
-            "{}/collections/{COLLECTION_NAME}/points",
-            self.qdrant_url
-        );
+        let url = format!("{}/collections/{COLLECTION_NAME}/points", self.qdrant_url);
         let body = build_upsert_body(id, embedding, chunk);
         let resp = self
             .client
@@ -318,9 +305,7 @@ fn find_md_files(root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in std::fs::read_dir(dir)
-        .with_context(|| format!("Cannot read directory {dir:?}"))?
-    {
+    for entry in std::fs::read_dir(dir).with_context(|| format!("Cannot read directory {dir:?}"))? {
         let entry = entry.context("Directory entry error")?;
         let path = entry.path();
         if path.is_dir() {
@@ -333,8 +318,7 @@ fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 fn file_last_modified_secs(path: &Path) -> Result<i64> {
-    let meta = std::fs::metadata(path)
-        .with_context(|| format!("Cannot stat {path:?}"))?;
+    let meta = std::fs::metadata(path).with_context(|| format!("Cannot stat {path:?}"))?;
     Ok(meta
         .modified()
         .context("mtime not supported on this platform")?

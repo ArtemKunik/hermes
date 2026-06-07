@@ -23,13 +23,11 @@ use crate::{
 
 // Re-export tools defined in sub-modules so callers use `mcp_tools::tool_*`.
 pub use crate::mcp_tools_analysis::{tool_scan_duplicates, tool_search_misses};
-pub use crate::mcp_tools_graph::{tool_blast_score, tool_high_blast, tool_impact_analysis, tool_repo_map};
+pub use crate::mcp_tools_graph::{
+    tool_blast_score, tool_high_blast, tool_impact_analysis, tool_repo_map,
+};
 pub use crate::mcp_tools_stats::{
-    tool_add_fact,
-    tool_add_fact_with_conn,
-    tool_list_facts,
-    tool_stats,
-    tool_stats_with_conn,
+    tool_add_fact, tool_add_fact_with_conn, tool_list_facts, tool_stats, tool_stats_with_conn,
 };
 
 pub fn tool_search(engine: &HermesEngine, query: &str, goal: Option<&str>) -> Result<String> {
@@ -162,18 +160,20 @@ fn mastermind_client() -> reqwest::blocking::Client {
 
 /// Generic Mastermind proxy — handles URL resolution, client construction, and response deserialization for POST requests.
 pub fn proxy_to_mastermind(engine: &HermesEngine, path_suffix: &str) -> Result<String> {
-    let mastermind_url = std::env::var("MASTERMIND_API_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let mastermind_url =
+        std::env::var("MASTERMIND_API_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     let client = mastermind_client();
-    let resp = client.post(format!("{mastermind_url}{path_suffix}")).send()?;
+    let resp = client
+        .post(format!("{mastermind_url}{path_suffix}"))
+        .send()?;
     let body: serde_json::Value = resp.json()?;
     Ok(serde_json::to_string_pretty(&body)?)
 }
 
 pub fn tool_slow_loop_status(_engine: &HermesEngine) -> Result<String> {
-    let mastermind_url = std::env::var("MASTERMIND_API_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let mastermind_url =
+        std::env::var("MASTERMIND_API_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     let client = mastermind_client();
     let resp = client
@@ -230,23 +230,29 @@ fn maybe_sleep_for_test_index_delay() {
 
 /// O(1) symbol lookup: find where a function, struct, class, or type is defined.
 pub fn tool_lookup(engine: &HermesEngine, symbol_name: &str) -> Result<String> {
-    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let entries = crate::symbol_index::lookup_symbol(&conn, engine.project_id(), symbol_name)?;
 
     if entries.is_empty() {
         anyhow::bail!("Symbol not found in index: {symbol_name}");
     }
 
-    let results: Vec<serde_json::Value> = entries.iter().map(|e| {
-        serde_json::json!({
-            "name": e.name,
-            "file_path": e.file_path,
-            "line": e.line,
-            "kind": e.kind,
-            "exported": e.exported,
-            "methods": e.methods,
+    let results: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "name": e.name,
+                "file_path": e.file_path,
+                "line": e.line,
+                "kind": e.kind,
+                "exported": e.exported,
+                "methods": e.methods,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "symbol": symbol_name,
@@ -257,18 +263,24 @@ pub fn tool_lookup(engine: &HermesEngine, symbol_name: &str) -> Result<String> {
 
 /// List all symbols defined in a file with their line numbers, kinds, and exported status.
 pub fn tool_file_symbols(engine: &HermesEngine, file_path: &str) -> Result<String> {
-    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     let entries = crate::symbol_index::get_file_symbols(&conn, engine.project_id(), file_path)?;
 
-    let results: Vec<serde_json::Value> = entries.iter().map(|e| {
-        serde_json::json!({
-            "name": e.name,
-            "line": e.line,
-            "kind": e.kind,
-            "exported": e.exported,
-            "methods": e.methods,
+    let results: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| {
+            serde_json::json!({
+                "name": e.name,
+                "line": e.line,
+                "kind": e.kind,
+                "exported": e.exported,
+                "methods": e.methods,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(serde_json::to_string_pretty(&serde_json::json!({
         "file_path": file_path,

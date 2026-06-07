@@ -98,7 +98,9 @@ impl Finding {
         self.dim == other.dim
             && self.file == other.file
             && self.evidence.len() >= 20
-            && other.evidence.starts_with(&self.evidence[..20.min(self.evidence.len())])
+            && other
+                .evidence
+                .starts_with(&self.evidence[..20.min(self.evidence.len())])
     }
 }
 
@@ -113,7 +115,7 @@ pub struct ModuleState {
 impl Default for ModuleState {
     fn default() -> Self {
         Self {
-            score: 100.0,      // no findings yet → perfect score
+            score: 100.0, // no findings yet → perfect score
             score_prev: 100.0,
             scan_ts: String::new(),
             findings: Vec::new(),
@@ -190,7 +192,15 @@ mod tests {
 
     #[test]
     fn test_finding_new_generates_prefixed_id() {
-        let f = Finding::new("QD-01", "T4", "production", "src/main.rs", Some(10), "desc", "evidence fragment");
+        let f = Finding::new(
+            "QD-01",
+            "T4",
+            "production",
+            "src/main.rs",
+            Some(10),
+            "desc",
+            "evidence fragment",
+        );
         assert!(f.id.starts_with("Q-"), "id should start with Q-: {}", f.id);
         assert_eq!(f.status, FindingStatus::Open);
         assert_eq!(f.dim, "QD-01");

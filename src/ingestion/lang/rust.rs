@@ -1,19 +1,28 @@
 use crate::ingestion::ast_chunker::AstChunk;
-use crate::ingestion::xref_extractor::{Xref, XrefKind};
 use crate::ingestion::lang::LanguageExtractor;
+use crate::ingestion::xref_extractor::{Xref, XrefKind};
 
 pub struct RustExtractor;
 
 impl LanguageExtractor for RustExtractor {
-    fn language(&self) -> &'static str { "rust" }
-    fn extensions(&self) -> &'static [&'static str] { &["rs"] }
+    fn language(&self) -> &'static str {
+        "rust"
+    }
+    fn extensions(&self) -> &'static [&'static str] {
+        &["rs"]
+    }
 
     fn extract_symbols(&self, content: &str, file_path: &str) -> Vec<AstChunk> {
         let mut parser = tree_sitter::Parser::new();
-        if parser.set_language(&tree_sitter_rust::LANGUAGE.into()).is_err() {
+        if parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .is_err()
+        {
             return Vec::new();
         }
-        let Some(tree) = parser.parse(content, None) else { return Vec::new() };
+        let Some(tree) = parser.parse(content, None) else {
+            return Vec::new();
+        };
         let mut chunks = Vec::new();
         let mut cursor = tree.walk();
         traverse_symbols(&mut cursor, content, file_path, &mut chunks);
@@ -22,10 +31,15 @@ impl LanguageExtractor for RustExtractor {
 
     fn extract_xrefs(&self, content: &str, file_path: &str) -> Vec<Xref> {
         let mut parser = tree_sitter::Parser::new();
-        if parser.set_language(&tree_sitter_rust::LANGUAGE.into()).is_err() {
+        if parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .is_err()
+        {
             return Vec::new();
         }
-        let Some(tree) = parser.parse(content, None) else { return Vec::new() };
+        let Some(tree) = parser.parse(content, None) else {
+            return Vec::new();
+        };
         let mut xrefs = Vec::new();
         let mut cursor = tree.walk();
         traverse_xrefs(&mut cursor, content, file_path, None, &mut xrefs);
@@ -46,7 +60,9 @@ fn traverse_symbols(
     if cursor.goto_first_child() {
         loop {
             traverse_symbols(cursor, content, file_path, chunks);
-            if !cursor.goto_next_sibling() { break; }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
         }
         cursor.goto_parent();
     }
@@ -84,7 +100,9 @@ fn extract_rust_name(node: &tree_sitter::Node, content: &str) -> Option<String> 
                 let r = child.range();
                 return Some(content[r.start_byte..r.end_byte].to_string());
             }
-            if !cursor.goto_next_sibling() { break; }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
         }
     }
     None
@@ -111,13 +129,21 @@ fn traverse_xrefs(
         "use_declaration" => {
             let names = extract_use_names(&node, content);
             for name in names {
-                xrefs.push(Xref { from_name: file_path.to_string(), to_name: name, kind: XrefKind::Imports });
+                xrefs.push(Xref {
+                    from_name: file_path.to_string(),
+                    to_name: name,
+                    kind: XrefKind::Imports,
+                });
             }
         }
         "call_expression" => {
             if let Some(callee) = extract_rust_callee(&node, content) {
                 let from = current_fn.unwrap_or(file_path).to_string();
-                xrefs.push(Xref { from_name: from, to_name: callee, kind: XrefKind::Calls });
+                xrefs.push(Xref {
+                    from_name: from,
+                    to_name: callee,
+                    kind: XrefKind::Calls,
+                });
             }
         }
         _ => {}
@@ -126,7 +152,9 @@ fn traverse_xrefs(
     if cursor.goto_first_child() {
         loop {
             traverse_xrefs(cursor, content, file_path, current_fn, xrefs);
-            if !cursor.goto_next_sibling() { break; }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
         }
         cursor.goto_parent();
     }
@@ -141,7 +169,9 @@ fn child_text(node: &tree_sitter::Node, child_kind: &str, content: &str) -> Opti
                 let r = child.range();
                 return Some(content[r.start_byte..r.end_byte].to_string());
             }
-            if !cursor.goto_next_sibling() { break; }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
         }
     }
     None
@@ -149,7 +179,9 @@ fn child_text(node: &tree_sitter::Node, child_kind: &str, content: &str) -> Opti
 
 fn extract_rust_callee(node: &tree_sitter::Node, content: &str) -> Option<String> {
     let mut cursor = node.walk();
-    if !cursor.goto_first_child() { return None; }
+    if !cursor.goto_first_child() {
+        return None;
+    }
     let callee = cursor.node();
     match callee.kind() {
         "identifier" => {
@@ -173,7 +205,9 @@ fn last_identifier_in(node: &tree_sitter::Node, content: &str) -> Option<String>
             } else if child.kind() == "scoped_identifier" {
                 last = last_identifier_in(&child, content);
             }
-            if !cursor.goto_next_sibling() { break; }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
         }
     }
     last
@@ -205,7 +239,9 @@ fn collect_use_names(node: &tree_sitter::Node, content: &str, out: &mut Vec<Stri
             if cursor.goto_first_child() {
                 loop {
                     collect_use_names(&cursor.node(), content, out);
-                    if !cursor.goto_next_sibling() { break; }
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
                 }
             }
         }

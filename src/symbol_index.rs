@@ -31,7 +31,11 @@ pub fn insert_symbol(
     Ok(conn.last_insert_rowid())
 }
 
-pub fn lookup_symbol(conn: &Connection, project_id: &str, symbol_name: &str) -> Result<Vec<SymbolEntry>> {
+pub fn lookup_symbol(
+    conn: &Connection,
+    project_id: &str,
+    symbol_name: &str,
+) -> Result<Vec<SymbolEntry>> {
     let mut stmt = conn.prepare(
         "SELECT id, project_id, name, file_path, line, kind, exported, methods
          FROM symbol_index
@@ -57,7 +61,11 @@ pub fn lookup_symbol(conn: &Connection, project_id: &str, symbol_name: &str) -> 
     Ok(results)
 }
 
-pub fn get_file_symbols(conn: &Connection, project_id: &str, file_path: &str) -> Result<Vec<SymbolEntry>> {
+pub fn get_file_symbols(
+    conn: &Connection,
+    project_id: &str,
+    file_path: &str,
+) -> Result<Vec<SymbolEntry>> {
     let mut stmt = conn.prepare(
         "SELECT id, project_id, name, file_path, line, kind, exported, methods
          FROM symbol_index
@@ -119,7 +127,17 @@ mod tests {
     #[test]
     fn test_insert_and_lookup() {
         let conn = test_conn();
-        insert_symbol(&conn, "proj1", "verify_token", "src/auth.rs", 42, "function", true, None).unwrap();
+        insert_symbol(
+            &conn,
+            "proj1",
+            "verify_token",
+            "src/auth.rs",
+            42,
+            "function",
+            true,
+            None,
+        )
+        .unwrap();
         let results = lookup_symbol(&conn, "proj1", "verify_token").unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "verify_token");
@@ -132,8 +150,28 @@ mod tests {
     #[test]
     fn test_lookup_multiple_matches() {
         let conn = test_conn();
-        insert_symbol(&conn, "proj1", "run", "src/main.rs", 10, "function", true, None).unwrap();
-        insert_symbol(&conn, "proj1", "run", "src/cli.rs", 5, "function", false, None).unwrap();
+        insert_symbol(
+            &conn,
+            "proj1",
+            "run",
+            "src/main.rs",
+            10,
+            "function",
+            true,
+            None,
+        )
+        .unwrap();
+        insert_symbol(
+            &conn,
+            "proj1",
+            "run",
+            "src/cli.rs",
+            5,
+            "function",
+            false,
+            None,
+        )
+        .unwrap();
         let results = lookup_symbol(&conn, "proj1", "run").unwrap();
         assert_eq!(results.len(), 2);
     }
@@ -141,9 +179,15 @@ mod tests {
     #[test]
     fn test_clear_file_symbols() {
         let conn = test_conn();
-        insert_symbol(&conn, "proj1", "foo", "src/a.rs", 1, "function", false, None).unwrap();
+        insert_symbol(
+            &conn, "proj1", "foo", "src/a.rs", 1, "function", false, None,
+        )
+        .unwrap();
         insert_symbol(&conn, "proj1", "bar", "src/a.rs", 10, "struct", true, None).unwrap();
-        insert_symbol(&conn, "proj1", "baz", "src/b.rs", 5, "function", false, None).unwrap();
+        insert_symbol(
+            &conn, "proj1", "baz", "src/b.rs", 5, "function", false, None,
+        )
+        .unwrap();
         assert_eq!(clear_file_symbols(&conn, "proj1", "src/a.rs").unwrap(), 2);
         assert_eq!(lookup_symbol(&conn, "proj1", "foo").unwrap().len(), 0);
         assert_eq!(lookup_symbol(&conn, "proj1", "baz").unwrap().len(), 1);
@@ -152,8 +196,28 @@ mod tests {
     #[test]
     fn test_get_file_symbols() {
         let conn = test_conn();
-        insert_symbol(&conn, "proj1", "alpha", "src/lib.rs", 5, "function", false, None).unwrap();
-        insert_symbol(&conn, "proj1", "Beta", "src/lib.rs", 20, "struct", true, None).unwrap();
+        insert_symbol(
+            &conn,
+            "proj1",
+            "alpha",
+            "src/lib.rs",
+            5,
+            "function",
+            false,
+            None,
+        )
+        .unwrap();
+        insert_symbol(
+            &conn,
+            "proj1",
+            "Beta",
+            "src/lib.rs",
+            20,
+            "struct",
+            true,
+            None,
+        )
+        .unwrap();
         let results = get_file_symbols(&conn, "proj1", "src/lib.rs").unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].line, 5);
@@ -163,8 +227,28 @@ mod tests {
     #[test]
     fn test_exported_flag() {
         let conn = test_conn();
-        insert_symbol(&conn, "proj1", "internal", "src/lib.rs", 1, "function", false, None).unwrap();
-        insert_symbol(&conn, "proj1", "External", "src/lib.rs", 10, "struct", true, None).unwrap();
+        insert_symbol(
+            &conn,
+            "proj1",
+            "internal",
+            "src/lib.rs",
+            1,
+            "function",
+            false,
+            None,
+        )
+        .unwrap();
+        insert_symbol(
+            &conn,
+            "proj1",
+            "External",
+            "src/lib.rs",
+            10,
+            "struct",
+            true,
+            None,
+        )
+        .unwrap();
         let results = lookup_symbol(&conn, "proj1", "internal").unwrap();
         assert!(!results[0].exported);
         let results = lookup_symbol(&conn, "proj1", "External").unwrap();

@@ -1,4 +1,5 @@
 // tools/hermes-engine/src/search/search_support.rs
+use super::{SearchEngine, SearchMode, SearchResult, SearchTier};
 use crate::graph::{KnowledgeGraph, Node};
 use crate::pointer::{Pointer, PointerResponse};
 use crate::weight::WeightStore;
@@ -7,7 +8,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use super::{SearchEngine, SearchResult, SearchTier, SearchMode};
 
 pub const CACHE_TTL_SECS: u64 = 60;
 pub const CACHE_MAX_ENTRIES: usize = 256;
@@ -91,7 +91,10 @@ pub(crate) fn read_node_content_cached(
     Ok(content)
 }
 
-pub(crate) fn load_weights(graph: &KnowledgeGraph, results: &[SearchResult]) -> HashMap<String, f64> {
+pub(crate) fn load_weights(
+    graph: &KnowledgeGraph,
+    results: &[SearchResult],
+) -> HashMap<String, f64> {
     let node_ids: Vec<&str> = results.iter().map(|r| r.node.id.as_str()).collect();
     graph
         .with_raw_conn(|conn| {

@@ -44,16 +44,20 @@ async fn create_proposals(
         .as_array()
         .ok_or_else(|| ApiError::bad_request("body requires 'proposals' array"))?;
 
-    let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
+    let conn = engine
+        .db()
+        .lock()
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = ProposalStore::new(&conn, engine.project_id());
-    let created = store
-        .create_batch(proposals)
-        .map_err(ApiError::internal)?;
+    let created = store.create_batch(proposals).map_err(ApiError::internal)?;
 
-    Ok((StatusCode::CREATED, Json(json!({
-        "created": created.len(),
-        "proposals": created,
-    }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "created": created.len(),
+            "proposals": created,
+        })),
+    ))
 }
 
 async fn list_proposals(
@@ -61,7 +65,10 @@ async fn list_proposals(
     Query(q): Query<ListQuery>,
 ) -> ApiResult<Json<Value>> {
     let limit = q.limit.unwrap_or(50);
-    let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
+    let conn = engine
+        .db()
+        .lock()
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = ProposalStore::new(&conn, engine.project_id());
     let items = store
         .list(q.status.as_deref(), q.source.as_deref(), limit)
@@ -77,7 +84,10 @@ async fn get_proposal(
     State(engine): State<Arc<HermesEngine>>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
+    let conn = engine
+        .db()
+        .lock()
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = ProposalStore::new(&conn, engine.project_id());
     let p = store.get(&id)?;
     Ok(Json(serde_json::to_value(p).unwrap_or_default()))
@@ -100,14 +110,20 @@ async fn update_proposal_status(
         )));
     }
 
-    let conn = engine.db().lock().map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
+    let conn = engine
+        .db()
+        .lock()
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("db lock: {e}")))?;
     let store = ProposalStore::new(&conn, engine.project_id());
     let updated = store.update_status(&id, &body.status)?;
     Ok(Json(serde_json::to_value(updated).unwrap_or_default()))
 }
 
 fn is_valid_proposal_status(s: &str) -> bool {
-    matches!(s, "pending" | "edited" | "approved" | "rejected" | "completed")
+    matches!(
+        s,
+        "pending" | "edited" | "approved" | "rejected" | "completed"
+    )
 }
 
 /// Helper for tests / future expansion: get a Connection from an engine.

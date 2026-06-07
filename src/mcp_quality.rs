@@ -15,9 +15,8 @@ use crate::HermesEngine;
 const DEFAULT_GATEWAY: &str = "http://localhost:3001";
 
 fn gateway_client() -> LlmGatewayClient {
-    LlmGatewayClient::from_env(Client::new()).unwrap_or_else(|| {
-        LlmGatewayClient::new(Client::new(), DEFAULT_GATEWAY.to_string(), None)
-    })
+    LlmGatewayClient::from_env(Client::new())
+        .unwrap_or_else(|| LlmGatewayClient::new(Client::new(), DEFAULT_GATEWAY.to_string(), None))
 }
 
 /// Derive module name from a file path (crate directory name under ChartApp/).

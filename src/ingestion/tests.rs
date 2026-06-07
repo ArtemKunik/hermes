@@ -48,7 +48,10 @@ fn test_ingest_non_utf8_file_succeeds() {
     let pipeline = IngestionPipeline::new(&graph);
     let report = pipeline.ingest_directory(dir.path()).unwrap();
 
-    assert_eq!(report.errors, 0, "non-UTF-8 file must not be counted as an error");
+    assert_eq!(
+        report.errors, 0,
+        "non-UTF-8 file must not be counted as an error"
+    );
     assert_eq!(report.indexed, 1);
 }
 
@@ -69,7 +72,10 @@ fn two() { println!(\"two\"); }
 
     let nodes = graph.get_all_nodes().unwrap();
     let any_with_tokens = nodes.iter().any(|n| n.content_tokens.unwrap_or(0) > 0);
-    assert!(any_with_tokens, "Ingested nodes should have content_tokens set");
+    assert!(
+        any_with_tokens,
+        "Ingested nodes should have content_tokens set"
+    );
 
     let file_node = nodes
         .iter()
@@ -154,7 +160,8 @@ fn test_stale_file_removed_after_deletion() {
 fn test_ingest_populates_symbol_index() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("greeter.rs");
-    let content = "pub fn greet(name: &str) -> String { format!(\"hello {name}\") }\nfn internal() {}\n";
+    let content =
+        "pub fn greet(name: &str) -> String { format!(\"hello {name}\") }\nfn internal() {}\n";
     std::fs::write(&file, content).unwrap();
 
     let engine = HermesEngine::in_memory("test-symbol-index").unwrap();
@@ -164,9 +171,16 @@ fn test_ingest_populates_symbol_index() {
 
     let conn = engine.db().lock().unwrap();
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM symbol_index WHERE project_id = ?1", ["test-symbol-index"], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM symbol_index WHERE project_id = ?1",
+            ["test-symbol-index"],
+            |r| r.get(0),
+        )
         .unwrap();
-    assert!(count >= 2, "expected at least 2 symbols in symbol_index, got {count}");
+    assert!(
+        count >= 2,
+        "expected at least 2 symbols in symbol_index, got {count}"
+    );
 
     let exported_count: i64 = conn
         .query_row(
@@ -191,7 +205,11 @@ fn test_symbol_index_cleared_on_reingest() {
 
     let conn = engine.db().lock().unwrap();
     let before: i64 = conn
-        .query_row("SELECT COUNT(*) FROM symbol_index WHERE project_id = ?1", ["test-reingest-sym"], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM symbol_index WHERE project_id = ?1",
+            ["test-reingest-sym"],
+            |r| r.get(0),
+        )
         .unwrap();
     assert!(before >= 1, "symbols should exist after first ingest");
     drop(conn);
@@ -200,7 +218,14 @@ fn test_symbol_index_cleared_on_reingest() {
     pipeline.ingest_directory(dir.path()).unwrap();
     let conn = engine.db().lock().unwrap();
     let after: i64 = conn
-        .query_row("SELECT COUNT(*) FROM symbol_index WHERE project_id = ?1 AND name = 'one'", ["test-reingest-sym"], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM symbol_index WHERE project_id = ?1 AND name = 'one'",
+            ["test-reingest-sym"],
+            |r| r.get(0),
+        )
         .unwrap();
-    assert_eq!(after, 0, "stale symbol 'one' should be cleared on re-ingest");
+    assert_eq!(
+        after, 0,
+        "stale symbol 'one' should be cleared on re-ingest"
+    );
 }

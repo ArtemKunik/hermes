@@ -71,7 +71,8 @@ pub fn tool_lint_dismiss(
         "dismissed": true,
         "item_type": item_type,
         "item_id": item_id,
-    }).to_string())
+    })
+    .to_string())
 }
 
 /// List all dismissed items for a project.
@@ -93,7 +94,11 @@ pub fn tool_dismissed_list(
          WHERE project_id = ?1 {}
          ORDER BY dismissed_at DESC
          LIMIT ?2",
-        if item_type.is_some() { "AND item_type = ?3" } else { "" }
+        if item_type.is_some() {
+            "AND item_type = ?3"
+        } else {
+            ""
+        }
     );
 
     let mut stmt;
@@ -127,23 +132,27 @@ pub fn tool_dismissed_list(
         .collect()
     };
 
-    let items: Vec<Value> = rows.iter().map(|r| {
-        let mut item = json!({
-            "item_type": r.item_type,
-            "item_id": r.item_id,
-            "dismissed_by": r.dismissed_by,
-            "dismissed_at": r.dismissed_at,
-        });
-        if !r.reason.is_empty() {
-            item["reason"] = json!(r.reason);
-        }
-        item
-    }).collect();
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let mut item = json!({
+                "item_type": r.item_type,
+                "item_id": r.item_id,
+                "dismissed_by": r.dismissed_by,
+                "dismissed_at": r.dismissed_at,
+            });
+            if !r.reason.is_empty() {
+                item["reason"] = json!(r.reason);
+            }
+            item
+        })
+        .collect();
 
     Ok(json!({
         "dismissed_items": items,
         "count": items.len(),
-    }).to_string())
+    })
+    .to_string())
 }
 
 /// Auto-dismiss open quality findings older than 30 days.
@@ -171,7 +180,7 @@ pub fn tool_auto_dismiss(
                     auto_dismissed.push(finding.id.clone());
                 }
                 Err(_) => continue, // Skip entries with unparseable timestamps
-                _ => {}              // Still in window, keep open
+                _ => {}             // Still in window, keep open
             }
         }
     }
@@ -185,7 +194,8 @@ pub fn tool_auto_dismiss(
         "auto_dismissed": auto_dismissed.len(),
         "ids": auto_dismissed,
         "max_age_days": max_age_days,
-    }).to_string())
+    })
+    .to_string())
 }
 
 /// Check whether an item has been dismissed (used by list queries to filter).
@@ -215,7 +225,11 @@ pub fn is_finding_dismissed(project_root: &Path, id: &str) -> Result<bool> {
     Ok(false)
 }
 
-fn apply_to_finding(state: &mut crate::quality::state::QualityState, id: &str, f: impl Fn(&mut crate::quality::state::Finding)) -> Result<bool> {
+fn apply_to_finding(
+    state: &mut crate::quality::state::QualityState,
+    id: &str,
+    f: impl Fn(&mut crate::quality::state::Finding),
+) -> Result<bool> {
     for ms in state.modules.values_mut() {
         if let Some(finding) = ms.findings.iter_mut().find(|ff| ff.id == id) {
             f(finding);

@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher};
+use notify::{
+    Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher,
+};
 
 use crate::ingestion::crawler;
 use crate::mcp_actor::ToolActor;
@@ -64,11 +66,7 @@ pub fn start_file_watcher(actor: ToolActor, project_root: &Path) -> Result<(), S
     Ok(())
 }
 
-fn watch_loop(
-    actor: ToolActor,
-    rx: mpsc::Receiver<NotifyResult<Event>>,
-    project_root: &Path,
-) {
+fn watch_loop(actor: ToolActor, rx: mpsc::Receiver<NotifyResult<Event>>, project_root: &Path) {
     let mut debounce_map: HashMap<PathBuf, Instant> = HashMap::new();
     let mut pending_reindex = false;
     let debounce = Duration::from_secs(DEBOUNCE_SECS);
@@ -77,7 +75,13 @@ fn watch_loop(
         // Receive with timeout so we can flush pending reindex after quiet period
         match rx.recv_timeout(Duration::from_millis(500)) {
             Ok(Ok(event)) => {
-                handle_event(&event, project_root, &mut debounce_map, &mut pending_reindex, debounce);
+                handle_event(
+                    &event,
+                    project_root,
+                    &mut debounce_map,
+                    &mut pending_reindex,
+                    debounce,
+                );
             }
             Ok(Err(e)) => {
                 eprintln!("[hermes-watcher] notify error: {e}");
@@ -86,7 +90,9 @@ fn watch_loop(
                 if pending_reindex {
                     // Check if all debounced paths have quieted down
                     let now = Instant::now();
-                    let all_quiet = debounce_map.values().all(|t| now.duration_since(*t) >= debounce);
+                    let all_quiet = debounce_map
+                        .values()
+                        .all(|t| now.duration_since(*t) >= debounce);
                     if all_quiet {
                         eprintln!("[hermes-watcher] triggering incremental re-index");
                         if let Err(e) = actor.enqueue_auto_index() {

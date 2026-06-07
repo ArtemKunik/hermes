@@ -125,19 +125,35 @@ pub fn cmd_fetch(engine: &HermesEngine, node_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn cmd_list_tracks(engine: &HermesEngine, project_root: &Path, status: Option<&str>) -> Result<()> {
+pub fn cmd_list_tracks(
+    engine: &HermesEngine,
+    project_root: &Path,
+    status: Option<&str>,
+) -> Result<()> {
     let args = serde_json::json!({ "status": status.unwrap_or("unfinished") });
-    println!("{}", hermes_engine::mcp_tracks::tool_list_tracks(engine, project_root, &args)?);
+    println!(
+        "{}",
+        hermes_engine::mcp_tracks::tool_list_tracks(engine, project_root, &args)?
+    );
     Ok(())
 }
 
-pub fn cmd_resume_track(engine: &HermesEngine, project_root: &Path, track_id: Option<&str>, auto: bool, status: Option<&str>) -> Result<()> {
+pub fn cmd_resume_track(
+    engine: &HermesEngine,
+    project_root: &Path,
+    track_id: Option<&str>,
+    auto: bool,
+    status: Option<&str>,
+) -> Result<()> {
     let args = serde_json::json!({
         "track_id": track_id.unwrap_or(""),
         "auto": auto,
         "status": status.unwrap_or("unfinished")
     });
-    println!("{}", hermes_engine::mcp_tracks::tool_resume_track(engine, project_root, &args)?);
+    println!(
+        "{}",
+        hermes_engine::mcp_tracks::tool_resume_track(engine, project_root, &args)?
+    );
     Ok(())
 }
 
@@ -294,4 +310,3 @@ pub fn cmd_backfill(engine: &HermesEngine) -> Result<()> {
     );
     Ok(())
 }
-

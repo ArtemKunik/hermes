@@ -40,7 +40,11 @@ pub fn tool_scan_duplicates(engine: &HermesEngine, signature: &str) -> Result<St
         "matches": matches,
         "score_max": score_max
     });
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
     let ptr_tokens = (matches.len() as u64).saturating_mul(80) + 30;
     let _ = acct.record_query(
         &format!("scan_duplicates:{}", &signature[..signature.len().min(40)]),

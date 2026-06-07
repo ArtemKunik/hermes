@@ -57,7 +57,8 @@ pub fn tool_validate_env_with_conn(
     let ptr_tokens = 30u64;
     let _ = acct.record_query(
         &format!("validate_env:{env_var}"),
-        ptr_tokens, 0,
+        ptr_tokens,
+        0,
         scanned.saturating_mul(3).max(ptr_tokens),
     );
 
@@ -133,7 +134,9 @@ pub fn tool_validate_symbols_with_conn(
     let traditional = (known_len as u64).saturating_mul(5).max(ptr_tokens);
     let _ = acct.record_query(
         &format!("validate_symbols:{}", symbols.first().unwrap_or(&"")),
-        ptr_tokens, 0, traditional,
+        ptr_tokens,
+        0,
+        traditional,
     );
 
     let any_invalid = results.iter().any(|r| r["valid"] == false);

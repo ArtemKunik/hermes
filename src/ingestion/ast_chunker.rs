@@ -20,10 +20,7 @@ impl AstChunker {
     }
 
     pub fn chunk_file(&mut self, file_path: &Path, content: &str) -> Result<Vec<AstChunk>> {
-        let ext = file_path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
+        let ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or("");
         let extractor = crate::ingestion::lang::get_extractor(ext)
             .ok_or_else(|| anyhow::anyhow!("unsupported file extension: {ext}"))?;
         Ok(extractor.extract_symbols(content, &file_path.to_string_lossy()))

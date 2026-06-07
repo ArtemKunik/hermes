@@ -80,7 +80,9 @@ fn cli_prepare_commit_message_infers_pipeline_from_changes() {
     cmd.assert()
         .success()
         .stdout(contains("Task-Model: task://build-heal/2026-03-10-001"))
-        .stdout(contains("Decision-Doc: memory/decisions/build-heal-context-linking.md"))
+        .stdout(contains(
+            "Decision-Doc: memory/decisions/build-heal-context-linking.md",
+        ))
         .stdout(contains("Docs: docs/sre-dashboard.md"))
         .stdout(contains("Pipeline: 18"));
 }

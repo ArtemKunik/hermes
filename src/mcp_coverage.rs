@@ -157,10 +157,14 @@ fn query_uncovered(
         for row in rows.filter_map(|r| r.ok()) {
             let (name, fp, _nt): (String, String, String) = row;
             if let Some(sym) = symbol {
-                if !name.contains(sym) { continue; }
+                if !name.contains(sym) {
+                    continue;
+                }
             }
             if let Some(scope_str) = scope {
-                if !fp.replace('\\', "/").contains(scope_str) { continue; }
+                if !fp.replace('\\', "/").contains(scope_str) {
+                    continue;
+                }
             }
             result.push(serde_json::json!({
                 "symbol": name,

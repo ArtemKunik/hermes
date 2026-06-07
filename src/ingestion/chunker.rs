@@ -321,8 +321,14 @@ mod tests {
         let code = "pub(super) fn autocomplete_slash_input(x: &str) -> Option<String> { None }\npub(crate) async fn process_event() {}\n";
         let chunks = chunk_rust(code);
         let names: Vec<&str> = chunks.iter().map(|c| c.name.as_str()).collect();
-        assert!(names.contains(&"autocomplete_slash_input"), "pub(super) fn not indexed");
-        assert!(names.contains(&"process_event"), "pub(crate) async fn not indexed");
+        assert!(
+            names.contains(&"autocomplete_slash_input"),
+            "pub(super) fn not indexed"
+        );
+        assert!(
+            names.contains(&"process_event"),
+            "pub(crate) async fn not indexed"
+        );
     }
 
     #[test]

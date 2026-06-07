@@ -8,9 +8,9 @@ pub trait LanguageExtractor: Send + Sync {
     fn extract_xrefs(&self, content: &str, file_path: &str) -> Vec<Xref>;
 }
 
+pub mod python;
 pub mod rust;
 pub mod typescript;
-pub mod python;
 
 pub fn get_extractor(ext: &str) -> Option<Box<dyn LanguageExtractor>> {
     match ext {
@@ -21,7 +21,9 @@ pub fn get_extractor(ext: &str) -> Option<Box<dyn LanguageExtractor>> {
     }
 }
 
-pub fn parser_for_extension(ext: &str) -> Option<(tree_sitter::Parser, Box<dyn LanguageExtractor>)> {
+pub fn parser_for_extension(
+    ext: &str,
+) -> Option<(tree_sitter::Parser, Box<dyn LanguageExtractor>)> {
     let extractor = get_extractor(ext)?;
     let mut parser = tree_sitter::Parser::new();
     let language: tree_sitter::Language = match ext {

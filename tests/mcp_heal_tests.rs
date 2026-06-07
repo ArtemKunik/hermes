@@ -88,5 +88,8 @@ fn heal_tool_selects_only_initial_eligible_rules() {
         .map(|s| s.to_string())
         .collect::<Vec<_>>();
     rules.sort();
-    assert_eq!(rules, vec!["SAFETY-001".to_string(), "SAFETY-003".to_string()]);
+    assert_eq!(
+        rules,
+        vec!["SAFETY-001".to_string(), "SAFETY-003".to_string()]
+    );
 }

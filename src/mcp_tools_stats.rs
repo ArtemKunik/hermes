@@ -6,11 +6,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 use serde_json::json;
 
-use crate::{
-    accounting::Accountant,
-    temporal::TemporalStore,
-    HermesEngine,
-};
+use crate::{accounting::Accountant, temporal::TemporalStore, HermesEngine};
 
 /// Version used by the MCP actor: takes an already-locked connection to avoid
 /// re-locking the shared read_db mutex (which would deadlock on in-memory engines).

@@ -4,8 +4,8 @@ use rusqlite::Connection;
 use serde_json::json;
 use std::path::Path;
 
-use crate::{accounting::Accountant, HermesEngine};
 use crate::mcp_memory::utils::{slugify, str_array};
+use crate::{accounting::Accountant, HermesEngine};
 
 pub fn tool_write_decision(
     engine: &HermesEngine,
@@ -47,11 +47,7 @@ pub fn tool_write_decision(
     );
     std::fs::write(&path, &content)?;
 
-    let acct = Accountant::from_conn(
-        conn,
-        engine.project_id(),
-        engine.session_id(),
-    );
+    let acct = Accountant::from_conn(conn, engine.project_id(), engine.session_id());
     let tags_csv = if tags.is_empty() {
         None
     } else {

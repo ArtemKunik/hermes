@@ -111,7 +111,8 @@ impl TemporalStore {
             let mut sql = "SELECT id, project_id, node_id, fact_type, content, topic, tags,
                                   confidence, valid_from, valid_to, superseded_by,
                                   source_reference, provenance, repo_id, agent_id
-                           FROM temporal_facts WHERE project_id = ?1".to_string();
+                           FROM temporal_facts WHERE project_id = ?1"
+                .to_string();
             let mut param_vals: Vec<rusqlite::types::Value> = vec![self.project_id.clone().into()];
 
             if !filter.include_expired {
@@ -161,7 +162,10 @@ impl TemporalStore {
                     .and_then(|s| serde_json::from_str(s).ok())
                     .unwrap_or_default();
                 let valid_to: Option<String> = row.get(9)?;
-                let stale = valid_to.as_deref().map(|v| v < now.as_str()).unwrap_or(false);
+                let stale = valid_to
+                    .as_deref()
+                    .map(|v| v < now.as_str())
+                    .unwrap_or(false);
                 Ok(TemporalFact {
                     id: row.get(0)?,
                     project_id: row.get(1)?,
@@ -197,7 +201,10 @@ impl TemporalStore {
     }
 
     pub fn get_facts_for_node(&self, node_id: &str) -> Result<Vec<TemporalFact>> {
-        let filter = FactFilter { node_id: Some(node_id.to_string()), ..Default::default() };
+        let filter = FactFilter {
+            node_id: Some(node_id.to_string()),
+            ..Default::default()
+        };
         self.get_active_facts(&filter)
     }
 }

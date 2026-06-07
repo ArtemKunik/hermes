@@ -15,9 +15,15 @@ use crate::graph::KnowledgeGraph;
 pub struct FileSizeRule;
 
 impl ArchRule for FileSizeRule {
-    fn id(&self) -> &str { "SIZE-001" }
-    fn severity(&self) -> Severity { Severity::Error }
-    fn description(&self) -> &str { "Source file exceeds 300 lines (AGENTS.md hard limit)" }
+    fn id(&self) -> &str {
+        "SIZE-001"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
+    fn description(&self) -> &str {
+        "Source file exceeds 300 lines (AGENTS.md hard limit)"
+    }
 
     fn evaluate(&self, graph: &KnowledgeGraph, _root: &Path) -> Result<Vec<Violation>> {
         let conn = graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -51,10 +57,16 @@ impl ArchRule for FileSizeRule {
             .into_iter()
             .map(|(name, fp, start, end)| {
                 let lines = end - start;
-                Violation::new(self.id(), self.severity(), &fp,
-                    format!("`{name}` has {lines} lines — AGENTS.md limits source files to 300 lines"))
-                    .with_lines(1, end as u32)
-                    .with_suggestion("Refactor: extract cohesive blocks into separate modules")
+                Violation::new(
+                    self.id(),
+                    self.severity(),
+                    &fp,
+                    format!(
+                        "`{name}` has {lines} lines — AGENTS.md limits source files to 300 lines"
+                    ),
+                )
+                .with_lines(1, end as u32)
+                .with_suggestion("Refactor: extract cohesive blocks into separate modules")
             })
             .collect())
     }
@@ -67,9 +79,15 @@ impl ArchRule for FileSizeRule {
 pub struct MethodSizeRule;
 
 impl ArchRule for MethodSizeRule {
-    fn id(&self) -> &str { "SIZE-002" }
-    fn severity(&self) -> Severity { Severity::Warning }
-    fn description(&self) -> &str { "Function or method exceeds 50 lines (AGENTS.md hard limit)" }
+    fn id(&self) -> &str {
+        "SIZE-002"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn description(&self) -> &str {
+        "Function or method exceeds 50 lines (AGENTS.md hard limit)"
+    }
 
     fn evaluate(&self, graph: &KnowledgeGraph, _root: &Path) -> Result<Vec<Violation>> {
         let conn = graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -101,11 +119,15 @@ impl ArchRule for MethodSizeRule {
             .into_iter()
             .map(|(sym, fp, start, end)| {
                 let lines = end - start;
-                Violation::new(self.id(), self.severity(), &fp,
-                    format!("`{sym}` has {lines} lines — AGENTS.md limits methods to 50 lines"))
-                    .with_lines(start as u32, end as u32)
-                    .with_symbol(&sym)
-                    .with_suggestion("Extract helper functions to reduce method body size")
+                Violation::new(
+                    self.id(),
+                    self.severity(),
+                    &fp,
+                    format!("`{sym}` has {lines} lines — AGENTS.md limits methods to 50 lines"),
+                )
+                .with_lines(start as u32, end as u32)
+                .with_symbol(&sym)
+                .with_suggestion("Extract helper functions to reduce method body size")
             })
             .collect())
     }

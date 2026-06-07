@@ -6,10 +6,10 @@ use std::path::Path;
 
 use crate::accounting::Accountant;
 use crate::graph::KnowledgeGraph;
+use crate::incident_io::str_array;
 use crate::mcp_memory::{ingest_single_file, slugify};
 use crate::search::{SearchEngine, SearchMode};
 use crate::HermesEngine;
-use crate::incident_io::str_array;
 
 /// Write a standalone KB article.
 pub fn tool_write_kb_article(
@@ -19,7 +19,10 @@ pub fn tool_write_kb_article(
 ) -> Result<String> {
     let sub_product = args["sub_product"].as_str().unwrap_or("unknown");
     let title = args["title"].as_str().unwrap_or("");
-    anyhow::ensure!(!title.is_empty(), "hermes_write_kb_article requires 'title'");
+    anyhow::ensure!(
+        !title.is_empty(),
+        "hermes_write_kb_article requires 'title'"
+    );
 
     let problem = args["problem"].as_str().unwrap_or("");
     let solution = args["solution"].as_str().unwrap_or("");
@@ -59,7 +62,11 @@ pub fn tool_write_kb_article(
 
     std::fs::write(&path, &content)?;
 
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
     acct.record_memory_event(
         if existed { "kb_updated" } else { "kb_created" },
         Some(title),
@@ -78,10 +85,7 @@ pub fn tool_write_kb_article(
 }
 
 /// Search KB articles. Wraps hermes_search but filters results to memory/kb/ paths.
-pub fn tool_search_kb(
-    engine: &HermesEngine,
-    args: &serde_json::Value,
-) -> Result<String> {
+pub fn tool_search_kb(engine: &HermesEngine, args: &serde_json::Value) -> Result<String> {
     let db = engine.read_db().lock().unwrap_or_else(|e| e.into_inner());
     tool_search_kb_with_conn(engine, &db, args)
 }

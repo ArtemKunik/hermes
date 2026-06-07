@@ -58,7 +58,8 @@ pub fn classify_zone(path: &Path) -> Zone {
     let norm = path.to_string_lossy().replace('\\', "/");
 
     // 1. Tooling — excluded entirely
-    let is_tooling = |seg: &str| norm.starts_with(&format!("{seg}/")) || norm.contains(&format!("/{seg}/"));
+    let is_tooling =
+        |seg: &str| norm.starts_with(&format!("{seg}/")) || norm.contains(&format!("/{seg}/"));
     if is_tooling("tools")
         || is_tooling("agentd")
         || is_tooling("node_modules")
@@ -108,15 +109,30 @@ mod tests {
 
     #[test]
     fn test_classify_zone_production() {
-        assert_eq!(zone("ChartApp/chartapp-server-rust/src/handlers/task.rs"), Zone::Production);
-        assert_eq!(zone("ChartApp/chartapp.client/src/components/Chart.tsx"), Zone::Production);
+        assert_eq!(
+            zone("ChartApp/chartapp-server-rust/src/handlers/task.rs"),
+            Zone::Production
+        );
+        assert_eq!(
+            zone("ChartApp/chartapp.client/src/components/Chart.tsx"),
+            Zone::Production
+        );
     }
 
     #[test]
     fn test_classify_zone_test() {
-        assert_eq!(zone("ChartApp/chartapp-server-rust/src/task_test.rs"), Zone::Test);
-        assert_eq!(zone("ChartApp/chartapp.client/src/Chart.spec.ts"), Zone::Test);
-        assert_eq!(zone("ChartApp/chartapp-server-rust/tests/integration.rs"), Zone::Test);
+        assert_eq!(
+            zone("ChartApp/chartapp-server-rust/src/task_test.rs"),
+            Zone::Test
+        );
+        assert_eq!(
+            zone("ChartApp/chartapp.client/src/Chart.spec.ts"),
+            Zone::Test
+        );
+        assert_eq!(
+            zone("ChartApp/chartapp-server-rust/tests/integration.rs"),
+            Zone::Test
+        );
     }
 
     #[test]

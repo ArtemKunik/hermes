@@ -52,12 +52,23 @@ fn collect_hits(
     Ok(())
 }
 
-pub(crate) fn git_track_commits(project_root: &Path, track_id: &str) -> anyhow::Result<Vec<String>> {
+pub(crate) fn git_track_commits(
+    project_root: &Path,
+    track_id: &str,
+) -> anyhow::Result<Vec<String>> {
     let output = Command::new("git")
-        .args(["--no-pager", "log", "--oneline", "--grep", track_id, "-n", "5"])
+        .args([
+            "--no-pager",
+            "log",
+            "--oneline",
+            "--grep",
+            track_id,
+            "-n",
+            "5",
+        ])
         .current_dir(project_root)
         .output()?;
-    
+
     if !output.status.success() {
         return Ok(Vec::new());
     }
@@ -68,7 +79,7 @@ pub(crate) fn git_track_commits(project_root: &Path, track_id: &str) -> anyhow::
         .filter(|line| !line.is_empty())
         .map(String::from)
         .collect();
-    
+
     Ok(commits)
 }
 
@@ -76,7 +87,9 @@ pub(crate) fn extract_items(text: &str, prefix: &str) -> Vec<String> {
     text.lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            trimmed.starts_with(prefix).then(|| clean_item(trimmed, prefix))
+            trimmed
+                .starts_with(prefix)
+                .then(|| clean_item(trimmed, prefix))
         })
         .filter(|line| !line.is_empty())
         .take(6)

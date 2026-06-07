@@ -14,13 +14,13 @@ use chrono::Utc;
 use serde_json::json;
 use std::path::Path;
 
-use crate::mcp_memory::{ingest_single_file, slugify};
-use crate::HermesEngine;
 use crate::incident_io::*;
 use crate::kb_handler::*;
+use crate::mcp_memory::{ingest_single_file, slugify};
+use crate::HermesEngine;
 
-pub use crate::kb_handler::{tool_write_kb_article, tool_search_kb, tool_search_kb_with_conn};
 pub use crate::incident_io::{tool_query_incidents, tool_query_incidents_with_conn};
+pub use crate::kb_handler::{tool_search_kb, tool_search_kb_with_conn, tool_write_kb_article};
 
 // ---------------------------------------------------------------------------
 // hermes_log_incident
@@ -246,16 +246,27 @@ mod tests {
 
         // Resolve alpha
         let lv: serde_json::Value = serde_json::from_str(
-            &tool_log_incident(&engine, tmp.path(), &json!({
-                "sub_product": "backend", "title": "gamma incident", "severity": "P1"
-            })).unwrap()
-        ).unwrap();
+            &tool_log_incident(
+                &engine,
+                tmp.path(),
+                &json!({
+                    "sub_product": "backend", "title": "gamma incident", "severity": "P1"
+                }),
+            )
+            .unwrap(),
+        )
+        .unwrap();
         // Actually resolve it
         let slug = lv["slug"].as_str().unwrap().to_string();
-        tool_resolve_incident(&engine, tmp.path(), &json!({
-            "sub_product": "backend", "slug": slug,
-            "root_cause": "bug", "fix_summary": "fixed", "write_kb": false,
-        })).unwrap();
+        tool_resolve_incident(
+            &engine,
+            tmp.path(),
+            &json!({
+                "sub_product": "backend", "slug": slug,
+                "root_cause": "bug", "fix_summary": "fixed", "write_kb": false,
+            }),
+        )
+        .unwrap();
 
         // Query only OPEN incidents
         let out = tool_query_incidents(&engine, tmp.path(), &json!({ "status": "OPEN" })).unwrap();
@@ -267,6 +278,9 @@ mod tests {
     #[test]
     fn validate_sub_product_known_and_unknown() {
         assert_eq!(validate_sub_product("backend"), "backend");
-        assert_eq!(validate_sub_product("my-custom-svc"), "custom/my-custom-svc");
+        assert_eq!(
+            validate_sub_product("my-custom-svc"),
+            "custom/my-custom-svc"
+        );
     }
 }

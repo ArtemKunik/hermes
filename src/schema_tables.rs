@@ -108,12 +108,12 @@ pub(crate) fn create_search_misses_table(conn: &Connection) {
 /// Idempotent: add extended columns to temporal_facts (topic, tags, confidence, …).
 pub(crate) fn migrate_temporal_facts_extended(conn: &Connection) {
     for (col, def) in &[
-        ("topic",       "TEXT"),
-        ("tags",        "TEXT NOT NULL DEFAULT '[]'"),
-        ("confidence",  "REAL"),
-        ("provenance",  "TEXT"),
-        ("repo_id",     "TEXT"),
-        ("agent_id",    "TEXT"),
+        ("topic", "TEXT"),
+        ("tags", "TEXT NOT NULL DEFAULT '[]'"),
+        ("confidence", "REAL"),
+        ("provenance", "TEXT"),
+        ("repo_id", "TEXT"),
+        ("agent_id", "TEXT"),
     ] {
         let _ = conn.execute_batch(&format!(
             "ALTER TABLE temporal_facts ADD COLUMN {col} {def};"

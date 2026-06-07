@@ -220,7 +220,11 @@ mod tests {
         graph.add_node(&func_node).unwrap();
 
         let paths = graph.get_all_file_paths().unwrap();
-        assert_eq!(paths.len(), 1, "same path from different node types should be deduplicated");
+        assert_eq!(
+            paths.len(),
+            1,
+            "same path from different node types should be deduplicated"
+        );
         assert!(paths.contains("/project/src/lib.rs"));
     }
 }

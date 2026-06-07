@@ -83,11 +83,27 @@ mod tests {
     use crate::quality::state::Finding;
 
     fn open_finding(tier: &str, zone: &str) -> Finding {
-        Finding::new("QD-01", tier, zone, "file.rs", None, "desc", "evidence fragment one")
+        Finding::new(
+            "QD-01",
+            tier,
+            zone,
+            "file.rs",
+            None,
+            "desc",
+            "evidence fragment one",
+        )
     }
 
     fn wontfix_finding(tier: &str, zone: &str) -> Finding {
-        let mut f = Finding::new("QD-01", tier, zone, "file.rs", None, "desc", "evidence fragment two");
+        let mut f = Finding::new(
+            "QD-01",
+            tier,
+            zone,
+            "file.rs",
+            None,
+            "desc",
+            "evidence fragment two",
+        );
         f.status = FindingStatus::Wontfix;
         f
     }

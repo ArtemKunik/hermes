@@ -116,7 +116,8 @@ impl Accountant {
             }
             if let Some(ts) = last_ts {
                 if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&ts) {
-                    let age = chrono::Utc::now().signed_duration_since(dt.with_timezone(&chrono::Utc));
+                    let age =
+                        chrono::Utc::now().signed_duration_since(dt.with_timezone(&chrono::Utc));
                     if age.num_days() as u64 >= days {
                         return Ok(true);
                     }

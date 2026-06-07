@@ -11,9 +11,15 @@ use crate::graph::KnowledgeGraph;
 
 fn resolve_path(project_root: &Path, file_path: &str) -> Option<std::path::PathBuf> {
     let p = std::path::Path::new(file_path);
-    if p.is_absolute() && p.exists() { return Some(p.to_path_buf()); }
+    if p.is_absolute() && p.exists() {
+        return Some(p.to_path_buf());
+    }
     let joined = project_root.join(file_path);
-    if joined.exists() { Some(joined) } else { None }
+    if joined.exists() {
+        Some(joined)
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -23,8 +29,12 @@ fn resolve_path(project_root: &Path, file_path: &str) -> Option<std::path::PathB
 pub struct RcUsageRule;
 
 impl ArchRule for RcUsageRule {
-    fn id(&self) -> &str { "CONCURRENCY-001" }
-    fn severity(&self) -> Severity { Severity::Error }
+    fn id(&self) -> &str {
+        "CONCURRENCY-001"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
     fn description(&self) -> &str {
         "Use Arc<T> for thread-safe reference counting instead of non-thread-safe Rc"
     }
@@ -51,16 +61,24 @@ impl ArchRule for RcUsageRule {
 
         let mut violations = Vec::new();
         for fp in paths {
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue };
-            let Ok(content) = std::fs::read_to_string(&abs_path) else { continue };
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Ok(content) = std::fs::read_to_string(&abs_path) else {
+                continue;
+            };
 
             // Only flag files that are async-context (contain async markers)
             let is_async = async_indicators.iter().any(|kw| content.contains(kw));
-            if !is_async { continue; }
+            if !is_async {
+                continue;
+            }
 
             for (i, line) in content.lines().enumerate() {
                 let trimmed = line.trim();
-                if trimmed.starts_with("//") { continue; }
+                if trimmed.starts_with("//") {
+                    continue;
+                }
                 if rc_pattern.is_match(line) {
                     violations.push(
                         Violation::new(self.id(), self.severity(), &fp,

@@ -44,7 +44,9 @@ pub fn tool_check_consistency_with_conn(
     let mut configs: HashMap<String, (HashSet<String>, HashSet<String>)> = HashMap::new();
     for row in rows {
         let (name, edge_type, file_path) = row?;
-        let entry = configs.entry(name).or_insert((HashSet::new(), HashSet::new()));
+        let entry = configs
+            .entry(name)
+            .or_insert((HashSet::new(), HashSet::new()));
         if edge_type == "defines" {
             entry.0.insert(file_path);
         } else if edge_type == "uses" {
@@ -68,7 +70,11 @@ pub fn tool_check_consistency_with_conn(
                 .iter()
                 .filter_map(|def| {
                     let dist = strsim::levenshtein(&name, def);
-                    if dist <= 3 { Some((def.clone(), dist)) } else { None }
+                    if dist <= 3 {
+                        Some((def.clone(), dist))
+                    } else {
+                        None
+                    }
                 })
                 .min_by_key(|(_, d)| *d)
                 .map(|(s, _)| s);

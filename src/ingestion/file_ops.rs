@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 
 fn is_exported(content: &str) -> bool {
     let first_line = content.lines().next().unwrap_or("").trim();
-    first_line.starts_with("pub ") || first_line.starts_with("pub(") || first_line.starts_with("export ")
+    first_line.starts_with("pub ")
+        || first_line.starts_with("pub(")
+        || first_line.starts_with("export ")
 }
 
 fn extract_methods(content: &str) -> Option<String> {
@@ -18,16 +20,28 @@ fn extract_methods(content: &str) -> Option<String> {
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix("fn ") {
                 let name = rest.split('(').next().unwrap_or("").trim();
-                if !name.is_empty() && !name.starts_with('_') { Some(name) } else { None }
+                if !name.is_empty() && !name.starts_with('_') {
+                    Some(name)
+                } else {
+                    None
+                }
             } else if let Some(rest) = trimmed.strip_prefix("pub fn ") {
                 let name = rest.split('(').next().unwrap_or("").trim();
-                if !name.is_empty() && !name.starts_with('_') { Some(name) } else { None }
+                if !name.is_empty() && !name.starts_with('_') {
+                    Some(name)
+                } else {
+                    None
+                }
             } else {
                 None
             }
         })
         .collect();
-    if methods.is_empty() { None } else { Some(methods.join(", ")) }
+    if methods.is_empty() {
+        None
+    } else {
+        Some(methods.join(", "))
+    }
 }
 
 fn insert_symbol_index(
@@ -40,9 +54,22 @@ fn insert_symbol_index(
     is_impl: bool,
 ) -> Result<()> {
     let exported = is_exported(content);
-    let methods = if is_impl { extract_methods(content) } else { None };
+    let methods = if is_impl {
+        extract_methods(content)
+    } else {
+        None
+    };
     let conn = graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-    crate::symbol_index::insert_symbol(&conn, graph.project_id(), name, file_path, start_line, kind, exported, methods.as_deref())?;
+    crate::symbol_index::insert_symbol(
+        &conn,
+        graph.project_id(),
+        name,
+        file_path,
+        start_line,
+        kind,
+        exported,
+        methods.as_deref(),
+    )?;
     Ok(())
 }
 
@@ -58,23 +85,23 @@ pub fn ingest_file_inner(
     let path_str = normalize_logical_path(&file_path.to_string_lossy());
 
     #[cfg(feature = "ast")]
-    let (ast_chunks, regex_chunks) =
-        if file_path.extension().and_then(|s| s.to_str()) == Some("rs") {
-            match crate::ingestion::ast_chunker::AstChunker::new()
-                .and_then(|mut c| c.chunk_file(file_path, &content))
-            {
-                Ok(chunks) => (chunks, Vec::new()),
-                Err(_) => (
-                    Vec::new(),
-                    crate::ingestion::chunker::chunk_file(file_path, &content),
-                ),
-            }
-        } else {
-            (
+    let (ast_chunks, regex_chunks) = if file_path.extension().and_then(|s| s.to_str()) == Some("rs")
+    {
+        match crate::ingestion::ast_chunker::AstChunker::new()
+            .and_then(|mut c| c.chunk_file(file_path, &content))
+        {
+            Ok(chunks) => (chunks, Vec::new()),
+            Err(_) => (
                 Vec::new(),
                 crate::ingestion::chunker::chunk_file(file_path, &content),
-            )
-        };
+            ),
+        }
+    } else {
+        (
+            Vec::new(),
+            crate::ingestion::chunker::chunk_file(file_path, &content),
+        )
+    };
 
     #[cfg(not(feature = "ast"))]
     let (ast_chunks, regex_chunks) = (

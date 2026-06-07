@@ -1,8 +1,8 @@
 // tools/hermes-engine/src/embedding/generator.rs
 use super::deterministic_embedding;
 use super::provider_types::{
-    EmbeddingContent, EmbeddingPart, EmbeddingRequest, EmbeddingResponse,
-    LmStudioRequest, LmStudioResponse, OaRequest, OaResponse,
+    EmbeddingContent, EmbeddingPart, EmbeddingRequest, EmbeddingResponse, LmStudioRequest,
+    LmStudioResponse, OaRequest, OaResponse,
 };
 use super::routing::{resolve_lmstudio_targets, LmStudioTarget, DEFAULT_LMSTUDIO_MODEL};
 use anyhow::{Context, Result};
@@ -44,7 +44,11 @@ impl EmbeddingGenerator {
             .unwrap_or(DEFAULT_RPM);
 
         let gateway_client = match (gateway_url, gateway_key) {
-            (Some(url), Some(key)) => Some(LlmGatewayClient::new(reqwest::Client::new(), url, Some(key))),
+            (Some(url), Some(key)) => Some(LlmGatewayClient::new(
+                reqwest::Client::new(),
+                url,
+                Some(key),
+            )),
             (Some(url), None) => Some(LlmGatewayClient::new(reqwest::Client::new(), url, None)),
             (None, _) => None,
         };
@@ -96,7 +100,10 @@ impl EmbeddingGenerator {
             .map_err(|e| anyhow::anyhow!("Rate limiter closed: {e}"))?;
 
         if let Some(gateway) = &self.gateway_client {
-            match gateway.embed(text, Some(&self.model), "hermes-engine").await {
+            match gateway
+                .embed(text, Some(&self.model), "hermes-engine")
+                .await
+            {
                 Ok(result) => {
                     if let Some(first) = result.embeddings.into_iter().next() {
                         return Ok(first);

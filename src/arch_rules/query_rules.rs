@@ -11,9 +11,15 @@ use crate::graph::KnowledgeGraph;
 
 fn resolve_path(project_root: &Path, file_path: &str) -> Option<std::path::PathBuf> {
     let p = std::path::Path::new(file_path);
-    if p.is_absolute() && p.exists() { return Some(p.to_path_buf()); }
+    if p.is_absolute() && p.exists() {
+        return Some(p.to_path_buf());
+    }
     let joined = project_root.join(file_path);
-    if joined.exists() { Some(joined) } else { None }
+    if joined.exists() {
+        Some(joined)
+    } else {
+        None
+    }
 }
 
 fn is_store_file(file_path: &str) -> bool {
@@ -32,8 +38,12 @@ fn is_store_file(file_path: &str) -> bool {
 pub struct StringInterpolationQueryRule;
 
 impl ArchRule for StringInterpolationQueryRule {
-    fn id(&self) -> &str { "QUERY-001" }
-    fn severity(&self) -> Severity { Severity::Error }
+    fn id(&self) -> &str {
+        "QUERY-001"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
     fn description(&self) -> &str {
         "String interpolation (format!) in store/query module — use parameterized queries instead"
     }
@@ -44,12 +54,13 @@ impl ArchRule for StringInterpolationQueryRule {
         // File-level: broad set to detect files that touch a DB at all
         let file_sql_keywords = Regex::new(
             r#"(?i)\b(SELECT|WHERE|INSERT|UPDATE|DELETE|FROM|JOIN|ORDER BY|GROUP BY)\b"#,
-        ).unwrap();
+        )
+        .unwrap();
         // Per-line: stricter — SELECT and WHERE almost never appear in non-SQL Rust code,
         // unlike INSERT/DELETE/JOIN/FROM which clash with .insert()/.delete()/.join()/use..from.
-        let line_sql_keywords = Regex::new(
-            r#"(?i)\b(SELECT|WHERE|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b"#,
-        ).unwrap();
+        let line_sql_keywords =
+            Regex::new(r#"(?i)\b(SELECT|WHERE|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b"#)
+                .unwrap();
 
         let conn = graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
         let mut stmt = conn.prepare(
@@ -69,15 +80,23 @@ impl ArchRule for StringInterpolationQueryRule {
 
         let mut violations = Vec::new();
         for fp in paths {
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue };
-            let Ok(content) = std::fs::read_to_string(&abs_path) else { continue };
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Ok(content) = std::fs::read_to_string(&abs_path) else {
+                continue;
+            };
 
             // Check if this file contains SQL/Cosmos query keywords
-            if !file_sql_keywords.is_match(&content) { continue; }
+            if !file_sql_keywords.is_match(&content) {
+                continue;
+            }
 
             for (i, line) in content.lines().enumerate() {
                 let trimmed = line.trim();
-                if trimmed.starts_with("//") { continue; }
+                if trimmed.starts_with("//") {
+                    continue;
+                }
                 if format_pattern.is_match(line) && line_sql_keywords.is_match(line) {
                     violations.push(
                         Violation::new(self.id(), self.severity(), &fp,

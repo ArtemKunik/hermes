@@ -1,10 +1,4 @@
-use hermes_engine::{
-    ingestion::skill_scanner,
-    mcp_skills,
-    mcp_tools,
-    schema,
-    HermesEngine,
-};
+use hermes_engine::{ingestion::skill_scanner, mcp_skills, mcp_tools, schema, HermesEngine};
 use rusqlite::Connection;
 use serde_json::Value;
 use std::fs;
@@ -43,7 +37,10 @@ Use this skill when you need to enqueue a training task.
 
     let skill = &skills[0];
     assert_eq!(skill.name, "Submit Training Task");
-    assert_eq!(skill.description, "Submit training jobs to the Training API.");
+    assert_eq!(
+        skill.description,
+        "Submit training jobs to the Training API."
+    );
     assert_eq!(skill.language, "python");
     assert_eq!(skill.category, "automation");
     assert_eq!(skill.version, "1.2.0");
@@ -127,11 +124,17 @@ Use this skill when a Rust service needs a reusable outbound HTTP pattern.
     .unwrap();
 
     let engine = HermesEngine::in_memory("skills-index").unwrap();
+    mcp_tools::tool_index(&engine, dir.path()).unwrap();
     {
         let conn = engine.db().lock().unwrap();
-        mcp_tools::tool_index(&engine, &conn, dir.path()).unwrap();
-        let mut stmt = conn.prepare("SELECT name, file_path, project_id FROM skills").unwrap();
-        let rows: Vec<(String, String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().flatten().collect();
+        let mut stmt = conn
+            .prepare("SELECT name, file_path, project_id FROM skills")
+            .unwrap();
+        let rows: Vec<(String, String, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .flatten()
+            .collect();
         println!("SKILLS IN DB: {:?}", rows);
     }
 
@@ -141,11 +144,8 @@ Use this skill when a Rust service needs a reusable outbound HTTP pattern.
     assert_eq!(first_match["category"], "api");
     assert_eq!(first_match["language"], "rust");
 
-    let fetched = mcp_skills::tool_fetch_skill(
-        &engine,
-        first_match["file_path"].as_str().unwrap(),
-    )
-    .unwrap();
+    let fetched =
+        mcp_skills::tool_fetch_skill(&engine, first_match["file_path"].as_str().unwrap()).unwrap();
     let resource_roots = fetched["resource_roots"].as_array().unwrap();
     assert_eq!(resource_roots, &[Value::String("scripts".to_string())]);
 }
@@ -172,19 +172,13 @@ description: Generate Rust unit tests from function behavior.
     .unwrap();
 
     let engine = HermesEngine::in_memory("skills-reindex").unwrap();
-    {
-        let conn = engine.db().lock().unwrap();
-        mcp_tools::tool_index(&engine, &conn, dir.path()).unwrap();
-    }
+    mcp_tools::tool_index(&engine, dir.path()).unwrap();
     let first = mcp_skills::tool_match_skills(&engine, "unit test", None).unwrap();
     assert_eq!(first["matches"].as_array().unwrap().len(), 1);
 
     fs::remove_dir_all(dir.path().join("skills")).unwrap();
 
-    {
-        let conn = engine.db().lock().unwrap();
-        mcp_tools::tool_index(&engine, &conn, dir.path()).unwrap();
-    }
+    mcp_tools::tool_index(&engine, dir.path()).unwrap();
     let second = mcp_skills::tool_match_skills(&engine, "unit test", None).unwrap();
     assert_eq!(second["matches"].as_array().unwrap().len(), 0);
 }
@@ -211,10 +205,7 @@ description: Submit tasks through the Training API.
     .unwrap();
 
     let engine = HermesEngine::in_memory("skills-relative-fetch").unwrap();
-    {
-        let conn = engine.db().lock().unwrap();
-        mcp_tools::tool_index(&engine, &conn, dir.path()).unwrap();
-    }
+    mcp_tools::tool_index(&engine, dir.path()).unwrap();
 
     let fetched = mcp_skills::tool_fetch_skill(
         &engine,

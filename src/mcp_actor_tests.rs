@@ -118,7 +118,7 @@ fn actor_keeps_followup_calls_responsive_after_timeout() {
     // Remove the artificial delay AND the tight timeout so subsequent calls succeed.
     std::env::remove_var("HERMES_TEST_TOOL_DELAY_MS");
     std::env::remove_var("HERMES_TOOL_TIMEOUT_MS");
-    
+
     let started = Instant::now();
     let output = actor
         .call_tool("hermes_stats", &json!({}))
@@ -144,15 +144,18 @@ fn actor_index_accepts_custom_project_root() {
     let engine = HermesEngine::in_memory("actor-index-custom").expect("engine");
     let default_root = tempfile::tempdir().expect("tempdir");
     let custom_root = tempfile::tempdir().expect("tempdir");
-    
+
     std::fs::write(custom_root.path().join("main.rs"), "fn main() {}\n").expect("seed file");
-    
+
     let actor = ToolActor::start(engine, default_root.path().to_path_buf());
-    
+
     let output = actor
-        .call_tool("hermes_index", &json!({ "project_root": custom_root.path().to_str().unwrap() }))
+        .call_tool(
+            "hermes_index",
+            &json!({ "project_root": custom_root.path().to_str().unwrap() }),
+        )
         .expect("index should accept custom project_root");
     let payload: serde_json::Value = serde_json::from_str(&output).expect("valid json");
-    
+
     assert_eq!(payload["total_files"], 1);
 }

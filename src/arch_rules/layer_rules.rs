@@ -24,8 +24,12 @@ fn path_contains(path: &str, segment: &str) -> bool {
 pub struct LayerHandlerImportsStore;
 
 impl ArchRule for LayerHandlerImportsStore {
-    fn id(&self) -> &str { "LAYER-001" }
-    fn severity(&self) -> Severity { Severity::Error }
+    fn id(&self) -> &str {
+        "LAYER-001"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
     fn description(&self) -> &str {
         "Handler module imports a store module directly (skips service layer)"
     }
@@ -76,8 +80,12 @@ impl ArchRule for LayerHandlerImportsStore {
 pub struct LayerHandlerBusinessLogic;
 
 impl ArchRule for LayerHandlerBusinessLogic {
-    fn id(&self) -> &str { "LAYER-002" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "LAYER-002"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "Handler function body exceeds 30 lines (likely contains business logic)"
     }
@@ -129,9 +137,15 @@ impl ArchRule for LayerHandlerBusinessLogic {
 pub struct LayerServiceImportsHandler;
 
 impl ArchRule for LayerServiceImportsHandler {
-    fn id(&self) -> &str { "LAYER-003" }
-    fn severity(&self) -> Severity { Severity::Error }
-    fn description(&self) -> &str { "Service module imports a handler module (inverted dependency)" }
+    fn id(&self) -> &str {
+        "LAYER-003"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
+    fn description(&self) -> &str {
+        "Service module imports a handler module (inverted dependency)"
+    }
 
     fn evaluate(&self, graph: &KnowledgeGraph, _root: &Path) -> Result<Vec<Violation>> {
         let conn = graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -178,8 +192,12 @@ impl ArchRule for LayerServiceImportsHandler {
 pub struct LayerComponentFetch;
 
 impl ArchRule for LayerComponentFetch {
-    fn id(&self) -> &str { "LAYER-004" }
-    fn severity(&self) -> Severity { Severity::Error }
+    fn id(&self) -> &str {
+        "LAYER-004"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
     fn description(&self) -> &str {
         "React component makes direct fetch/axios/API call (should use hook or service)"
     }
@@ -212,10 +230,18 @@ impl ArchRule for LayerComponentFetch {
         Ok(rows
             .into_iter()
             .map(|(fp, sym, callee)| {
-                Violation::new(self.id(), self.severity(), &fp,
-                    format!("Component `{sym}` calls `{callee}` directly — move to a hook or service"))
-                    .with_symbol(&sym)
-                    .with_suggestion("Extract the API call into a custom hook (useXxx) or service function")
+                Violation::new(
+                    self.id(),
+                    self.severity(),
+                    &fp,
+                    format!(
+                        "Component `{sym}` calls `{callee}` directly — move to a hook or service"
+                    ),
+                )
+                .with_symbol(&sym)
+                .with_suggestion(
+                    "Extract the API call into a custom hook (useXxx) or service function",
+                )
             })
             .collect())
     }
@@ -228,8 +254,12 @@ impl ArchRule for LayerComponentFetch {
 pub struct LayerComponentImportsApi;
 
 impl ArchRule for LayerComponentImportsApi {
-    fn id(&self) -> &str { "LAYER-005" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "LAYER-005"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "React component imports from services/api directly (should go through a hook)"
     }
@@ -263,10 +293,18 @@ impl ArchRule for LayerComponentImportsApi {
             .into_iter()
             .filter(|(fp, _, _)| !path_contains(fp, "/hooks/") && !path_contains(fp, "\\hooks\\"))
             .map(|(fp, sym, target)| {
-                Violation::new(self.id(), self.severity(), &fp,
-                    format!("Component `{sym}` imports `{target}` directly — use a custom hook instead"))
-                    .with_symbol(&sym)
-                    .with_suggestion("Wrap the API import in a useXxx hook and call the hook from the component")
+                Violation::new(
+                    self.id(),
+                    self.severity(),
+                    &fp,
+                    format!(
+                        "Component `{sym}` imports `{target}` directly — use a custom hook instead"
+                    ),
+                )
+                .with_symbol(&sym)
+                .with_suggestion(
+                    "Wrap the API import in a useXxx hook and call the hook from the component",
+                )
             })
             .collect())
     }

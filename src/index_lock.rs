@@ -53,21 +53,21 @@ pub fn lock_file_path(project_root: &Path) -> PathBuf {
 /// avoiding pollution of project directories.
 pub fn try_acquire_index_lock(project_root: &Path) -> Result<LockAcquisition> {
     let lock_path = lock_file_path(project_root);
-    
+
     // Ensure /tmp directory exists
     if let Err(e) = std::fs::create_dir_all(lock_path.parent().unwrap()) {
         if e.kind() != std::io::ErrorKind::AlreadyExists {
             return Err(e.into());
         }
     }
-    
+
     // Open or create the lock file
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)
         .open(&lock_path)?;
-    
+
     // Try non-blocking exclusive lock
     match file.try_lock_exclusive() {
         Ok(()) => {
@@ -78,7 +78,7 @@ pub fn try_acquire_index_lock(project_root: &Path) -> Result<LockAcquisition> {
                 .as_secs();
             let _ = file.set_len(0);
             let _ = writeln!(file, "pid={}\nacquired_at={}", std::process::id(), now);
-            
+
             log_lock_event("acquired", &lock_path, None);
             LOCK_ACQUISITIONS.fetch_add(1, Ordering::Relaxed);
             Ok(LockAcquisition::Acquired(IndexLockGuard {
@@ -89,11 +89,11 @@ pub fn try_acquire_index_lock(project_root: &Path) -> Result<LockAcquisition> {
         Err(_) => {
             // Lock is held by another process
             LOCK_CONTENTIONS.fetch_add(1, Ordering::Relaxed);
-            
+
             // Read lock file for debugging info
             let details = read_lock_details(&lock_path)?;
             log_lock_event("busy", &lock_path, Some(&details));
-            
+
             Ok(LockAcquisition::Busy(details))
         }
     }
@@ -106,15 +106,20 @@ fn read_lock_details(lock_path: &Path) -> Result<LockDetails> {
         .find_map(|line| line.strip_prefix("pid=")?.trim().parse::<u32>().ok());
     let acquired_at = content
         .lines()
-        .find_map(|line| line.strip_prefix("acquired_at=")?.trim().parse::<u64>().ok())
+        .find_map(|line| {
+            line.strip_prefix("acquired_at=")?
+                .trim()
+                .parse::<u64>()
+                .ok()
+        })
         .unwrap_or(0);
-    
+
     let age_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
         .saturating_sub(acquired_at);
-    
+
     Ok(LockDetails {
         owner_pid: pid,
         acquired_at_unix: acquired_at,
@@ -128,7 +133,7 @@ fn log_lock_event(event: &str, lock_path: &Path, details: Option<&LockDetails>) 
         .map(|p| p.to_string())
         .unwrap_or_else(|| "unknown".to_string());
     let age_secs = details.map(|d| d.age_secs).unwrap_or(0);
-    
+
     eprintln!(
         "[hermes:index-lock] event={event} path={} current_pid={} owner_pid={owner_pid} age_secs={age_secs}",
         lock_path.display(),
@@ -186,10 +191,10 @@ mod tests {
         assert!(matches!(acq2, LockAcquisition::Busy(_)));
 
         drop(acq1);
-        
+
         // Give OS time to release the lock
         thread::sleep(Duration::from_millis(100));
-        
+
         let acq3 = try_acquire_index_lock(temp.path()).unwrap();
         assert!(matches!(acq3, LockAcquisition::Acquired(_)));
     }
@@ -198,7 +203,7 @@ mod tests {
     fn lock_file_in_tmp_with_hash() {
         let path = Path::new("/home/user/my-project");
         let lock_path = lock_file_path(path);
-        
+
         assert!(lock_path.starts_with("/tmp"));
         assert!(lock_path.to_string_lossy().contains("hermes-index-"));
         assert!(lock_path.to_string_lossy().ends_with(".lock"));
@@ -209,11 +214,11 @@ mod tests {
         let path_a = Path::new("/home/user/project-a");
         let path_b = Path::new("/home/user/project-b");
         let path_a2 = Path::new("/home/user/project-a");
-        
+
         let lock_a = lock_file_path(path_a);
         let lock_b = lock_file_path(path_b);
         let lock_a2 = lock_file_path(path_a2);
-        
+
         assert_eq!(lock_a, lock_a2);
         assert_ne!(lock_a, lock_b);
     }

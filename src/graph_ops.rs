@@ -1,8 +1,8 @@
 // tools/hermes-engine/src/graph_ops.rs
+use crate::graph::KnowledgeGraph;
+use crate::graph_types::{Edge, EdgeType, Node, NodeType};
 use anyhow::{Context, Result};
 use rusqlite::params;
-use crate::graph::{KnowledgeGraph};
-use crate::graph_types::{Edge, EdgeType, Node, NodeType};
 
 impl KnowledgeGraph {
     pub fn get_neighbors(&self, node_id: &str) -> Result<Vec<(Edge, Node)>> {

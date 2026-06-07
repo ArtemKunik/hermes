@@ -61,7 +61,9 @@ fn quality_review_returns_current_run_findings_json_shape() {
             response_body.len(),
             response_body
         );
-        stream.write_all(response.as_bytes()).expect("write response");
+        stream
+            .write_all(response.as_bytes())
+            .expect("write response");
     });
 
     let _gateway = EnvVarGuard::set("HERMES_LLM_GATEWAY_URL", address);

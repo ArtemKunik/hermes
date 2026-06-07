@@ -5,8 +5,8 @@ use rusqlite::Connection;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
-use crate::{accounting::Accountant, HermesEngine};
 use crate::mcp_memory::utils::{build_md, ingest_single_file, slugify, str_array};
+use crate::{accounting::Accountant, HermesEngine};
 // ingest_single_file is still used by write_session_checkpoint below
 
 pub fn tool_remember(
@@ -53,11 +53,7 @@ pub fn tool_remember(
     );
     std::fs::write(&path, &content)?;
 
-    let acct = Accountant::from_conn(
-        conn,
-        engine.project_id(),
-        engine.session_id(),
-    );
+    let acct = Accountant::from_conn(conn, engine.project_id(), engine.session_id());
     let tags_csv = if tags.is_empty() {
         None
     } else {
@@ -101,18 +97,20 @@ pub fn tool_remember(
 
 pub fn tool_memory_stats(engine: &HermesEngine) -> Result<String> {
     let diagnostic_db = engine.diagnostic_db()?;
-    let conn = diagnostic_db.as_ref().lock().unwrap_or_else(|e| e.into_inner());
+    let conn = diagnostic_db
+        .as_ref()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     tool_memory_stats_with_conn(engine, &conn)
 }
 
-pub fn tool_memory_stats_with_conn(engine: &HermesEngine, conn: &rusqlite::Connection) -> Result<String> {
+pub fn tool_memory_stats_with_conn(
+    engine: &HermesEngine,
+    conn: &rusqlite::Connection,
+) -> Result<String> {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    let acct = Accountant::from_conn(
-        conn,
-        engine.project_id(),
-        engine.session_id(),
-    );
+    let acct = Accountant::from_conn(conn, engine.project_id(), engine.session_id());
     let since_midnight = Duration::from_secs(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

@@ -4,7 +4,11 @@ use std::path::Path;
 const HERMES_HOOK_HEADER: &str = "# HERMES HOOK v1 — managed by `hermes install-hook`";
 
 pub fn generate_hook_script(threshold: f64, strict: bool) -> String {
-    let strict_line = if strict { "STRICT=true" } else { "STRICT=false" };
+    let strict_line = if strict {
+        "STRICT=true"
+    } else {
+        "STRICT=false"
+    };
 
     format!(
         r#"#!/bin/sh
@@ -121,7 +125,10 @@ mod tests {
 
         let result = remove_hook(dir.path());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not managed by hermes"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not managed by hermes"));
     }
 
     #[test]

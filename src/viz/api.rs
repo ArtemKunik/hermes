@@ -1,10 +1,13 @@
+use crate::HermesEngine;
 use anyhow::Result;
 use rusqlite::params;
 use serde_json::{json, Value};
-use crate::HermesEngine;
 
 pub fn get_graph_json(engine: &HermesEngine) -> Result<Value> {
-    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // File nodes with blast scores
     let mut node_stmt = conn.prepare(
@@ -22,7 +25,10 @@ pub fn get_graph_json(engine: &HermesEngine) -> Result<Value> {
     let mut nodes = Vec::new();
     let node_rows = node_stmt.query_map([engine.project_id()], |row| {
         let file_path: Option<String> = row.get(2)?;
-        let loc: i64 = row.get(7).unwrap_or(0).max(row.get(8).unwrap_or(0) - row.get(7).unwrap_or(0) + 1);
+        let loc: i64 = row
+            .get(7)
+            .unwrap_or(0)
+            .max(row.get(8).unwrap_or(0) - row.get(7).unwrap_or(0) + 1);
         Ok(json!({
             "id": row.get::<_, String>(0)?,
             "name": row.get::<_, String>(1)?,
@@ -62,7 +68,10 @@ pub fn get_graph_json(engine: &HermesEngine) -> Result<Value> {
 }
 
 pub fn get_blast_json(engine: &HermesEngine, threshold: f64) -> Result<Value> {
-    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let mut stmt = conn.prepare(
         "SELECT bs.file_path, bs.blast_score, bs.risk_level,
@@ -91,7 +100,10 @@ pub fn get_blast_json(engine: &HermesEngine, threshold: f64) -> Result<Value> {
 }
 
 pub fn get_symbols_json(engine: &HermesEngine, file_path: &str) -> Result<Value> {
-    let conn = engine.read_db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let mut stmt = conn.prepare(
         "SELECT name, line, kind, exported

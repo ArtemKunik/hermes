@@ -80,7 +80,9 @@ impl ToolActor {
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 eprintln!("[hermes:ERROR] name={name} error=channel_disconnected");
-                Err(anyhow::anyhow!("tool actor receive failed: channel disconnected"))
+                Err(anyhow::anyhow!(
+                    "tool actor receive failed: channel disconnected"
+                ))
             }
         }
     }
@@ -109,17 +111,21 @@ fn actor_loop(engine: HermesEngine, project_root: PathBuf, rx: Receiver<ActorMes
                     // when possible. This prevents diagnostic/search tools from contending
                     // with the write lock held by the auto-indexer.
                     let result = match is_read_only_tool(&name) {
-                        true => {
-                            match engine.diagnostic_db() {
-                                Ok(db) => {
-                                    let conn = db.lock().unwrap_or_else(|e: PoisonError<MutexGuard<Connection>>| e.into_inner());
-                                    execute_tool_call(&engine, &conn, &project_root, &name, &args)
-                                }
-                                Err(e) => Err(anyhow::anyhow!("failed to open diagnostic connection: {e}")),
+                        true => match engine.diagnostic_db() {
+                            Ok(db) => {
+                                let conn = db.lock().unwrap_or_else(
+                                    |e: PoisonError<MutexGuard<Connection>>| e.into_inner(),
+                                );
+                                execute_tool_call(&engine, &conn, &project_root, &name, &args)
                             }
-                        }
+                            Err(e) => {
+                                Err(anyhow::anyhow!("failed to open diagnostic connection: {e}"))
+                            }
+                        },
                         false => {
-                            let conn = engine.db().lock().unwrap_or_else(|e: PoisonError<MutexGuard<Connection>>| e.into_inner());
+                            let conn = engine.db().lock().unwrap_or_else(
+                                |e: PoisonError<MutexGuard<Connection>>| e.into_inner(),
+                            );
                             execute_tool_call(&engine, &conn, &project_root, &name, &args)
                         }
                     };
@@ -175,7 +181,3 @@ fn maybe_sleep_for_test_tool_delay() {
 
 #[cfg(not(test))]
 fn maybe_sleep_for_test_tool_delay() {}
-
- 
- 
- 

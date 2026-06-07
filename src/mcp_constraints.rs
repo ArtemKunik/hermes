@@ -93,15 +93,40 @@ fn infer_crate(file_path: &str) -> String {
 fn rules_for_layer(layer: &Layer) -> Vec<serde_json::Value> {
     let all = default_rules();
     let fintech_ids: &[&str] = &[
-        "FIN-001", "FIN-002", "FIN-003", "FIN-004", "FIN-005", "FIN-006",
-        "FIN-007", "FIN-008", "FIN-009", "FIN-010", "FIN-011", "FIN-012",
-        "FIN-013", "FIN-014",
+        "FIN-001", "FIN-002", "FIN-003", "FIN-004", "FIN-005", "FIN-006", "FIN-007", "FIN-008",
+        "FIN-009", "FIN-010", "FIN-011", "FIN-012", "FIN-013", "FIN-014",
     ];
     let relevant_ids: &[&str] = match layer {
-        Layer::Handler => &["LAYER-001", "LAYER-002", "SIZE-001", "SIZE-002", "SAFETY-001", "SAFETY-002"],
-        Layer::Service => &["LAYER-003", "SIZE-001", "SIZE-002", "SAFETY-001", "SAFETY-002", "CONCURRENCY-001"],
-        Layer::Store => &["QUERY-001", "SIZE-001", "SIZE-002", "SAFETY-001", "SAFETY-002"],
-        Layer::Component => &["LAYER-004", "LAYER-005", "SIZE-001", "SIZE-002", "SAFETY-003"],
+        Layer::Handler => &[
+            "LAYER-001",
+            "LAYER-002",
+            "SIZE-001",
+            "SIZE-002",
+            "SAFETY-001",
+            "SAFETY-002",
+        ],
+        Layer::Service => &[
+            "LAYER-003",
+            "SIZE-001",
+            "SIZE-002",
+            "SAFETY-001",
+            "SAFETY-002",
+            "CONCURRENCY-001",
+        ],
+        Layer::Store => &[
+            "QUERY-001",
+            "SIZE-001",
+            "SIZE-002",
+            "SAFETY-001",
+            "SAFETY-002",
+        ],
+        Layer::Component => &[
+            "LAYER-004",
+            "LAYER-005",
+            "SIZE-001",
+            "SIZE-002",
+            "SAFETY-003",
+        ],
         Layer::Hook => &["SIZE-001", "SIZE-002", "SAFETY-003"],
         Layer::Api => &["SIZE-001", "SIZE-002", "SAFETY-003"],
         Layer::Type => &["SAFETY-003", "SIZE-001"],
@@ -120,12 +145,14 @@ fn rules_for_layer(layer: &Layer) -> Vec<serde_json::Value> {
 
     all.iter()
         .filter(|r| combined.contains(&r.id()))
-        .map(|r| serde_json::json!({
-            "rule_id": r.id(),
-            "severity": r.severity().as_str(),
-            "description": r.description(),
-            "applies_because": applies_because(r.id(), layer),
-        }))
+        .map(|r| {
+            serde_json::json!({
+                "rule_id": r.id(),
+                "severity": r.severity().as_str(),
+                "description": r.description(),
+                "applies_because": applies_because(r.id(), layer),
+            })
+        })
         .collect()
 }
 
@@ -134,7 +161,9 @@ fn applies_because(rule_id: &str, layer: &Layer) -> &'static str {
         ("LAYER-001", _) => "File is in handlers/ — must not import store modules directly",
         ("LAYER-002", _) => "File is in handlers/ — handler functions must stay ≤30 lines",
         ("LAYER-003", _) => "File is in *_service/ — services must not import handlers",
-        ("LAYER-004", _) => "File is in components/ — components must not call fetch/axios directly",
+        ("LAYER-004", _) => {
+            "File is in components/ — components must not call fetch/axios directly"
+        }
         ("LAYER-005", _) => "File is in components/ — use hooks/services for API calls",
         ("QUERY-001", _) => "File is in store module — always use parameterized queries",
         ("SIZE-001", _) => "All source files must stay ≤300 lines (AGENTS.md hard limit)",
@@ -149,13 +178,17 @@ fn applies_because(rule_id: &str, layer: &Layer) -> &'static str {
         ("FIN-004", _) => "Transaction/Ledger types must be immutable for audit trail compliance",
         ("FIN-005", _) => "Domain value objects must derive Clone for event sourcing compatibility",
         ("FIN-006", _) => "Domain code must use Arc not Rc for thread-safe sharing",
-        ("FIN-007", _) => "Decimal arithmetic results must not be unwrapped — propagate errors with ?",
+        ("FIN-007", _) => {
+            "Decimal arithmetic results must not be unwrapped — propagate errors with ?"
+        }
         ("FIN-008", _) => "Use checked Decimal::add/sub instead of +/- operators",
         ("FIN-009", _) => "Domain types should derive Serialize/Deserialize for persistence",
         ("FIN-010", _) => "Decimal newtypes should validate monetary values in constructor",
         ("FIN-011", _) => "Transaction apply() methods need tracing spans for audit trail",
         ("FIN-012", _) => "Domain events/commands need trace_id: Uuid for correlation",
-        ("FIN-013", _) => "Amount arithmetic must verify currency match to prevent mixing currencies",
+        ("FIN-013", _) => {
+            "Amount arithmetic must verify currency match to prevent mixing currencies"
+        }
         ("FIN-014", _) => "Domain/model code must not panic — use Result with domain error types",
         _ => "Applies to this file's architectural layer",
     }
@@ -175,7 +208,9 @@ fn get_file_lines(graph: &KnowledgeGraph, file_path: &str) -> Option<i64> {
 
 fn find_patterns(project_root: &Path, layer: &Layer) -> Vec<String> {
     let patterns_dir = project_root.join("patterns");
-    if !patterns_dir.exists() { return vec![]; }
+    if !patterns_dir.exists() {
+        return vec![];
+    }
 
     let keywords: &[&str] = match layer {
         Layer::Handler => &["handler", "route", "actix"],
@@ -187,7 +222,9 @@ fn find_patterns(project_root: &Path, layer: &Layer) -> Vec<String> {
         _ => &[],
     };
 
-    let Ok(entries) = std::fs::read_dir(&patterns_dir) else { return vec![] };
+    let Ok(entries) = std::fs::read_dir(&patterns_dir) else {
+        return vec![];
+    };
     entries
         .filter_map(|e| e.ok())
         .filter_map(|e| e.file_name().into_string().ok())
@@ -229,7 +266,10 @@ mod tests {
         .unwrap();
         let v: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(v["layer"], "store");
-        assert!(v["applicable_rules"].as_array().unwrap()
-            .iter().any(|r| r["rule_id"] == "QUERY-001"));
+        assert!(v["applicable_rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["rule_id"] == "QUERY-001"));
     }
 }

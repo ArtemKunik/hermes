@@ -94,7 +94,9 @@ pub fn enumerate_files(root: &Path) -> Vec<(PathBuf, Zone)> {
 }
 
 fn collect_files(dir: &Path, out: &mut Vec<(PathBuf, Zone)>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -163,7 +165,15 @@ fn validate_and_build_finding(
     }
     let tier = rf.tier.as_deref().unwrap_or(dim.tier);
     let file_str = file_path.to_string_lossy().replace('\\', "/");
-    Some(Finding::new(dim.id, tier, zone.as_str(), file_str, rf.line_hint, description, evidence))
+    Some(Finding::new(
+        dim.id,
+        tier,
+        zone.as_str(),
+        file_str,
+        rf.line_hint,
+        description,
+        evidence,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -214,8 +224,13 @@ fn call_llm(client: &LlmGatewayClient, prompt: &str) -> Result<Vec<LlmFinding>> 
 
 fn extract_json_array(content: &str) -> String {
     // Strip Qwen3 <think>...</think> reasoning block if present; answer follows.
-    let stripped = if let (Some(ts), Some(te)) = (content.find("<think>"), content.find("</think>")) {
-        if te > ts { &content[te + "</think>".len()..] } else { content }
+    let stripped = if let (Some(ts), Some(te)) = (content.find("<think>"), content.find("</think>"))
+    {
+        if te > ts {
+            &content[te + "</think>".len()..]
+        } else {
+            content
+        }
     } else {
         content
     };
@@ -233,7 +248,13 @@ fn extract_json_array(content: &str) -> String {
 // ---------------------------------------------------------------------------
 
 const SECRET_PATTERNS: [&str; 7] = [
-    "bearer ", "api_key", "apikey", "password=", "secret=", "master_key", "private_key",
+    "bearer ",
+    "api_key",
+    "apikey",
+    "password=",
+    "secret=",
+    "master_key",
+    "private_key",
 ];
 
 fn contains_secret_pattern(text: &str) -> bool {

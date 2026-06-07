@@ -1,8 +1,8 @@
 // ChartApp/hermes-engine/src/search/mod.rs
 pub mod fts;
 pub mod literal;
-pub mod vector;
 pub(crate) mod search_support;
+pub mod vector;
 
 use crate::graph::{KnowledgeGraph, Node};
 use crate::pointer::{FetchResponse, PointerResponse};

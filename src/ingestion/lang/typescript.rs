@@ -72,11 +72,7 @@ fn ts_traverse_symbols(
     }
 }
 
-fn ts_create_chunk(
-    node: &tree_sitter::Node,
-    content: &str,
-    file_path: &str,
-) -> Option<AstChunk> {
+fn ts_create_chunk(node: &tree_sitter::Node, content: &str, file_path: &str) -> Option<AstChunk> {
     let (object_type, name_field) = match node.kind() {
         "function_declaration" => ("function", Some("name")),
         "class_declaration" => ("class", Some("name")),
@@ -90,11 +86,10 @@ fn ts_create_chunk(
 
     let range = node.range();
     let name = if let Some(field) = name_field {
-        node.child_by_field_name(field)
-            .and_then(|n| {
-                let r = n.range();
-                Some(content[r.start_byte..r.end_byte].to_string())
-            })?
+        node.child_by_field_name(field).and_then(|n| {
+            let r = n.range();
+            Some(content[r.start_byte..r.end_byte].to_string())
+        })?
     } else {
         let mut c = node.walk();
         let mut found = None;
@@ -191,11 +186,7 @@ fn ts_extract_import_names(node: &tree_sitter::Node, content: &str) -> Vec<Strin
     names
 }
 
-fn ts_collect_import_clause(
-    node: &tree_sitter::Node,
-    content: &str,
-    names: &mut Vec<String>,
-) {
+fn ts_collect_import_clause(node: &tree_sitter::Node, content: &str, names: &mut Vec<String>) {
     // Default import: `import Foo from ...` → identifier child
     if let Some(id) = node.child_by_field_name("name") {
         let r = id.range();

@@ -77,7 +77,8 @@ pub fn tool_match_skills_with_conn(
     scored.sort_by(|a, b| {
         let sa = scope_precedence(&a.1.scope);
         let sb = scope_precedence(&b.1.scope);
-        sa.cmp(&sb).then(b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal))
+        sa.cmp(&sb)
+            .then(b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal))
     });
 
     let matches: Vec<Value> = scored
@@ -103,7 +104,8 @@ pub fn tool_match_skills_with_conn(
     let ptr_tokens = (matches.len() as u64).saturating_mul(80) + 30;
     let _ = acct.record_query(
         &format!("match_skills:{query}"),
-        ptr_tokens, 0,
+        ptr_tokens,
+        0,
         ptr_tokens.saturating_mul(15),
     );
 
@@ -157,7 +159,12 @@ pub fn tool_fetch_skill_with_conn(
 
     let acct = Accountant::from_conn(conn, engine.project_id(), engine.session_id());
     let tokens = (content.len() as u64) / 4;
-    let _ = acct.record_query(&format!("fetch_skill:{skill_path}"), 0, tokens, tokens.saturating_mul(10));
+    let _ = acct.record_query(
+        &format!("fetch_skill:{skill_path}"),
+        0,
+        tokens,
+        tokens.saturating_mul(10),
+    );
 
     Ok(json!({
         "id": row.0,

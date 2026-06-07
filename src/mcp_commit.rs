@@ -210,7 +210,12 @@ pub fn infer_pipeline_ids(changes: &[String]) -> Vec<u32> {
         maybe_push(&mut ids, &normalized, "chartapp/llm-gateway-rust/", 7);
         maybe_push(&mut ids, &normalized, "chartapp/doctor-service-rust/", 12);
         maybe_push(&mut ids, &normalized, "chartapp/watchdog-rust/", 5);
-        maybe_push(&mut ids, &normalized, "chartapp/local-agent-training-worker/", 3);
+        maybe_push(
+            &mut ids,
+            &normalized,
+            "chartapp/local-agent-training-worker/",
+            3,
+        );
         maybe_push(&mut ids, &normalized, "chartapp/android-app/", 6);
         maybe_push(&mut ids, &normalized, "chartapp/codex-worker-rust/", 15);
         maybe_push(&mut ids, &normalized, "tools/ccterm/", 18);

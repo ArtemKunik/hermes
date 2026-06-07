@@ -5,8 +5,8 @@ use rusqlite::{params, Connection};
 use std::sync::{Arc, Mutex};
 
 pub use crate::graph_builders::{EdgeBuilder, NodeBuilder};
+pub use crate::graph_support::{blob_to_f32_vector, f32_slice_to_blob, OptionalRow};
 pub use crate::graph_types::{Edge, EdgeType, Node, NodeType};
-pub use crate::graph_support::{f32_slice_to_blob, blob_to_f32_vector, OptionalRow};
 
 pub struct KnowledgeGraph {
     db: GraphConn,
@@ -167,7 +167,15 @@ impl KnowledgeGraph {
                 "INSERT OR REPLACE INTO symbol_embeddings \
                  (id, symbol_name, file_path, language, signature, snippet, embedding) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![id, symbol_name, file_path, language, signature, snippet, blob],
+                params![
+                    id,
+                    symbol_name,
+                    file_path,
+                    language,
+                    signature,
+                    snippet,
+                    blob
+                ],
             )?;
             Ok(())
         })
@@ -175,7 +183,9 @@ impl KnowledgeGraph {
 
     /// Return all stored embeddings along with their metadata.  The returned tuple is
     /// (symbol_name, file_path, signature, snippet, embedding_vec).
-    pub fn get_all_symbol_embeddings(&self) -> Result<Vec<(String, String, String, String, Vec<f32>)>> {
+    pub fn get_all_symbol_embeddings(
+        &self,
+    ) -> Result<Vec<(String, String, String, String, Vec<f32>)>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT symbol_name, file_path, signature, snippet, embedding \

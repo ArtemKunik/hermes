@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 
-use crate::{HermesEngine, mcp_tools, mcp_tools_consistency, mcp_tools_validation};
+use crate::{mcp_tools, mcp_tools_consistency, mcp_tools_validation, HermesEngine};
 
 // ── Context & Handler Type ──────────────────────────────────────────────────
 
@@ -111,7 +111,9 @@ pub(crate) fn execute_tool_call(
         project_root,
     };
     let handlers = TOOL_REGISTRY.lock().unwrap();
-    let handler = handlers.get(name).ok_or_else(|| anyhow::anyhow!("unknown tool: {name}"))?;
+    let handler = handlers
+        .get(name)
+        .ok_or_else(|| anyhow::anyhow!("unknown tool: {name}"))?;
     handler(&ctx, args)
 }
 
@@ -136,13 +138,19 @@ fn register_tools_inner(map: &mut HashMap<&'static str, ToolHandler>) {
 
     reg(map, "hermes_lookup", |ctx, args| {
         let symbol_name = args["symbol_name"].as_str().unwrap_or("");
-        anyhow::ensure!(!symbol_name.is_empty(), "hermes_lookup requires 'symbol_name'");
+        anyhow::ensure!(
+            !symbol_name.is_empty(),
+            "hermes_lookup requires 'symbol_name'"
+        );
         mcp_tools::tool_lookup(ctx.engine, symbol_name)
     });
 
     reg(map, "hermes_file_symbols", |ctx, args| {
         let file_path = args["file_path"].as_str().unwrap_or("");
-        anyhow::ensure!(!file_path.is_empty(), "hermes_file_symbols requires 'file_path'");
+        anyhow::ensure!(
+            !file_path.is_empty(),
+            "hermes_file_symbols requires 'file_path'"
+        );
         mcp_tools::tool_file_symbols(ctx.engine, file_path)
     });
 
@@ -178,26 +186,38 @@ fn register_tools_inner(map: &mut HashMap<&'static str, ToolHandler>) {
 
     reg(map, "hermes_approve_skill_candidate", |ctx, args| {
         let name = args["name"].as_str().unwrap_or("");
-        anyhow::ensure!(!name.is_empty(), "hermes_approve_skill_candidate requires 'name'");
+        anyhow::ensure!(
+            !name.is_empty(),
+            "hermes_approve_skill_candidate requires 'name'"
+        );
         mcp_tools::tool_approve_skill_candidate(ctx.engine, name)
     });
 
     reg(map, "hermes_reject_skill_candidate", |ctx, args| {
         let name = args["name"].as_str().unwrap_or("");
-        anyhow::ensure!(!name.is_empty(), "hermes_reject_skill_candidate requires 'name'");
+        anyhow::ensure!(
+            !name.is_empty(),
+            "hermes_reject_skill_candidate requires 'name'"
+        );
         mcp_tools::tool_reject_skill_candidate(ctx.engine, name)
     });
 
     reg(map, "hermes_apply_proposal", |ctx, args| {
         let filename = args["filename"].as_str().unwrap_or("");
-        anyhow::ensure!(!filename.is_empty(), "hermes_apply_proposal requires 'filename'");
+        anyhow::ensure!(
+            !filename.is_empty(),
+            "hermes_apply_proposal requires 'filename'"
+        );
         mcp_tools::tool_apply_proposal(ctx.engine, filename)
     });
 
     reg(map, "hermes_fact", |ctx, args| {
         let ft = args["fact_type"].as_str().unwrap_or("");
         let c = args["content"].as_str().unwrap_or("");
-        anyhow::ensure!(!ft.is_empty() && !c.is_empty(), "hermes_fact requires 'fact_type' and 'content'");
+        anyhow::ensure!(
+            !ft.is_empty() && !c.is_empty(),
+            "hermes_fact requires 'fact_type' and 'content'"
+        );
         mcp_tools::tool_add_fact_with_conn(ctx.engine, ctx.conn, ft, c)
     });
 
@@ -213,7 +233,10 @@ fn register_tools_inner(map: &mut HashMap<&'static str, ToolHandler>) {
 
     reg(map, "hermes_impact_analysis", |ctx, args| {
         let symbol = args["symbol_name"].as_str().unwrap_or("");
-        anyhow::ensure!(!symbol.is_empty(), "hermes_impact_analysis requires 'symbol_name'");
+        anyhow::ensure!(
+            !symbol.is_empty(),
+            "hermes_impact_analysis requires 'symbol_name'"
+        );
         mcp_tools::tool_impact_analysis(ctx.engine, symbol)
     });
 
@@ -281,8 +304,14 @@ fn register_memory_inner(map: &mut HashMap<&'static str, ToolHandler>) {
         mcp_memory::tool_battery_check(ctx.engine, args)
     });
     reg(map, "hermes_recall", |ctx, args| {
-        let query = args["query"].as_str().or_else(|| args["topic"].as_str()).unwrap_or("");
-        anyhow::ensure!(!query.is_empty(), "hermes_recall requires 'query' or 'topic'");
+        let query = args["query"]
+            .as_str()
+            .or_else(|| args["topic"].as_str())
+            .unwrap_or("");
+        anyhow::ensure!(
+            !query.is_empty(),
+            "hermes_recall requires 'query' or 'topic'"
+        );
         mcp_memory::tool_recall_with_conn(ctx.engine, ctx.conn, query)
     });
 }
@@ -323,7 +352,10 @@ fn register_validation_inner(map: &mut HashMap<&'static str, ToolHandler>) {
 
     reg(map, "hermes_validate_env", |ctx, args| {
         let env_var = args["env_var"].as_str().unwrap_or("");
-        anyhow::ensure!(!env_var.is_empty(), "hermes_validate_env requires 'env_var'");
+        anyhow::ensure!(
+            !env_var.is_empty(),
+            "hermes_validate_env requires 'env_var'"
+        );
         mcp_tools_validation::tool_validate_env_with_conn(ctx.engine, ctx.conn, env_var)
     });
 
@@ -332,7 +364,10 @@ fn register_validation_inner(map: &mut HashMap<&'static str, ToolHandler>) {
             .as_array()
             .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
-        anyhow::ensure!(!symbols.is_empty(), "hermes_validate_symbols requires 'symbols'");
+        anyhow::ensure!(
+            !symbols.is_empty(),
+            "hermes_validate_symbols requires 'symbols'"
+        );
         mcp_tools_validation::tool_validate_symbols_with_conn(ctx.engine, ctx.conn, &symbols)
     });
 }
@@ -383,7 +418,10 @@ fn register_skills_inner(map: &mut HashMap<&'static str, ToolHandler>) {
 
     reg(map, "hermes_fetch_skill", |ctx, args| {
         let skill_path = args["skill_path"].as_str().unwrap_or("");
-        anyhow::ensure!(!skill_path.is_empty(), "hermes_fetch_skill requires 'skill_path'");
+        anyhow::ensure!(
+            !skill_path.is_empty(),
+            "hermes_fetch_skill requires 'skill_path'"
+        );
         let val = mcp_skills::tool_fetch_skill_with_conn(ctx.engine, ctx.conn, skill_path)?;
         Ok(serde_json::to_string_pretty(&val)?)
     });
@@ -422,7 +460,10 @@ fn register_incidents_inner(map: &mut HashMap<&'static str, ToolHandler>) {
     });
 
     reg(map, "hermes_search_kb", |ctx, args| {
-        anyhow::ensure!(args["query"].as_str().is_some_and(|q| !q.is_empty()), "hermes_search_kb requires 'query'");
+        anyhow::ensure!(
+            args["query"].as_str().is_some_and(|q| !q.is_empty()),
+            "hermes_search_kb requires 'query'"
+        );
         mcp_incidents::tool_search_kb_with_conn(ctx.engine, ctx.conn, args)
     });
 }
@@ -464,7 +505,10 @@ fn register_constraints_inner(map: &mut HashMap<&'static str, ToolHandler>) {
 
     reg(map, "hermes_constraints", |ctx, args| {
         let file_path = args["file_path"].as_str().unwrap_or("");
-        anyhow::ensure!(!file_path.is_empty(), "hermes_constraints requires 'file_path'");
+        anyhow::ensure!(
+            !file_path.is_empty(),
+            "hermes_constraints requires 'file_path'"
+        );
         mcp_constraints::tool_constraints(ctx.engine, ctx.project_root, args)
     });
 }
@@ -548,10 +592,19 @@ mod tests {
         let engine = HermesEngine::in_memory("test").unwrap();
         let conn = engine.db().lock().unwrap();
         let project_root = std::path::PathBuf::new();
-        let result = execute_tool_call(&engine, &conn, &project_root, "hermes_nonexistent", &json!({}));
+        let result = execute_tool_call(
+            &engine,
+            &conn,
+            &project_root,
+            "hermes_nonexistent",
+            &json!({}),
+        );
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("unknown tool"), "expected 'unknown tool' error, got: {err}");
+        assert!(
+            err.contains("unknown tool"),
+            "expected 'unknown tool' error, got: {err}"
+        );
     }
 
     #[test]

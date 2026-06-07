@@ -14,17 +14,17 @@ use serde_json::Value;
 // Core profile — essential tools every local agent needs
 // ---------------------------------------------------------------------------
 const CORE_TOOLS: &[&str] = &[
-    "hermes_search",       // find code / docs in the knowledge graph
-    "hermes_fetch",        // read a specific node returned by search
-    "hermes_recall",       // recall prior work before implementation (mandatory)
-    "hermes_remember",     // persist session summary at end of conversation
-    "hermes_repo_map",     // compact architecture overview within a token budget
-    "hermes_index",        // re-index after file changes
+    "hermes_search",           // find code / docs in the knowledge graph
+    "hermes_fetch",            // read a specific node returned by search
+    "hermes_recall",           // recall prior work before implementation (mandatory)
+    "hermes_remember",         // persist session summary at end of conversation
+    "hermes_repo_map",         // compact architecture overview within a token budget
+    "hermes_index",            // re-index after file changes
     "hermes_validate_symbols", // catch typos in function/struct names before coding
-    "hermes_constraints",  // recite layer rules + size budget before generating code
-    "hermes_lookup",       // O(1) symbol location lookup
-    "hermes_mcp_status",   // diagnostic: node counts, index state — used by ccterm status panel
-    "hermes_stats",        // diagnostic: token savings — used by ccterm status panel
+    "hermes_constraints",      // recite layer rules + size budget before generating code
+    "hermes_lookup",           // O(1) symbol location lookup
+    "hermes_mcp_status",       // diagnostic: node counts, index state — used by ccterm status panel
+    "hermes_stats",            // diagnostic: token savings — used by ccterm status panel
 ];
 
 // ---------------------------------------------------------------------------
@@ -45,30 +45,30 @@ const STANDARD_TOOLS: &[&str] = &[
     "hermes_mcp_status",
     "hermes_stats",
     // -- standard additions --
-    "hermes_write_decision",       // persist resolved decisions
-    "hermes_compact_session",      // produce handover artifact
-    "hermes_validate_env",         // validate env var names
-    "hermes_check_consistency",    // detect Unknown/Unused env vars
-    "hermes_impact_analysis",      // blast-radius before refactoring
-    "hermes_blast_score",          // blast-radius score lookup
-    "hermes_high_blast",           // top-N high-impact nodes
+    "hermes_write_decision",         // persist resolved decisions
+    "hermes_compact_session",        // produce handover artifact
+    "hermes_validate_env",           // validate env var names
+    "hermes_check_consistency",      // detect Unknown/Unused env vars
+    "hermes_impact_analysis",        // blast-radius before refactoring
+    "hermes_blast_score",            // blast-radius score lookup
+    "hermes_high_blast",             // top-N high-impact nodes
     "hermes_prepare_commit_message", // structured commit trailers
-    "hermes_lint_architecture",    // arch-layer violation scan
-    "hermes_quality_baseline",     // snapshot violation set as drift baseline
-    "hermes_quality_drift",        // compare current violations vs baseline
-    "hermes_fact",                 // record persistent facts
-    "hermes_fact_expire",          // expire a superseded fact
-    "hermes_facts",                // list active facts
-    "hermes_mission_start",        // start a new mission
-    "hermes_mission_update",       // transition mission status
-    "hermes_mission_event",        // append mission log event
-    "hermes_mission_status",       // get mission state
-    "hermes_mission_list",         // list missions
-    "hermes_proposal_create",      // batch-create proposals
-    "hermes_proposal_list",        // list proposals with filters
-    "hermes_proposal_update",      // update proposal fields
-    "hermes_proposal_reject",      // reject proposal
-    "hermes_proposal_approve",     // approve proposal (creates mission)
+    "hermes_lint_architecture",      // arch-layer violation scan
+    "hermes_quality_baseline",       // snapshot violation set as drift baseline
+    "hermes_quality_drift",          // compare current violations vs baseline
+    "hermes_fact",                   // record persistent facts
+    "hermes_fact_expire",            // expire a superseded fact
+    "hermes_facts",                  // list active facts
+    "hermes_mission_start",          // start a new mission
+    "hermes_mission_update",         // transition mission status
+    "hermes_mission_event",          // append mission log event
+    "hermes_mission_status",         // get mission state
+    "hermes_mission_list",           // list missions
+    "hermes_proposal_create",        // batch-create proposals
+    "hermes_proposal_list",          // list proposals with filters
+    "hermes_proposal_update",        // update proposal fields
+    "hermes_proposal_reject",        // reject proposal
+    "hermes_proposal_approve",       // approve proposal (creates mission)
 ];
 
 // ---------------------------------------------------------------------------

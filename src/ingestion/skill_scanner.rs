@@ -69,9 +69,7 @@ pub fn parse_skill_file(path: &Path) -> Option<SkillMetadata> {
     let file_path = path.to_string_lossy().to_string();
 
     Some(SkillMetadata {
-        name: parsed
-            .name
-            .unwrap_or_else(|| fallback_skill_name(path)),
+        name: parsed.name.unwrap_or_else(|| fallback_skill_name(path)),
         description: parsed.description.unwrap_or_default(),
         category: parsed.category.unwrap_or(category),
         language: parsed.language.unwrap_or(language),
@@ -104,9 +102,12 @@ fn split_frontmatter(content: &str) -> (Option<String>, String) {
         return (None, content.to_string());
     }
 
-    let Some(end_idx) = lines.iter().enumerate().skip(1).find_map(|(idx, line)| {
-        (line.trim() == "---").then_some(idx)
-    }) else {
+    let Some(end_idx) = lines
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find_map(|(idx, line)| (line.trim() == "---").then_some(idx))
+    else {
         return (None, content.to_string());
     };
 
@@ -312,9 +313,16 @@ pub fn skill_id(project_id: &str, file_path: &str) -> String {
     format!("sk-{:016x}", hasher.finish())
 }
 
-pub fn populate_skills(conn: &Connection, project_id: &str, skills: &[SkillMetadata]) -> Result<()> {
+pub fn populate_skills(
+    conn: &Connection,
+    project_id: &str,
+    skills: &[SkillMetadata],
+) -> Result<()> {
     conn.execute("BEGIN", [])?;
-    conn.execute("DELETE FROM skills WHERE project_id = ?1", params![project_id])?;
+    conn.execute(
+        "DELETE FROM skills WHERE project_id = ?1",
+        params![project_id],
+    )?;
 
     for skill in skills {
         let id = skill_id(project_id, &skill.file_path);

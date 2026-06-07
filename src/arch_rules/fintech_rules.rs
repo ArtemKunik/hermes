@@ -83,8 +83,12 @@ fn is_comment_or_string_line(line: &str) -> bool {
 pub struct NoF64MoneyRule;
 
 impl ArchRule for NoF64MoneyRule {
-    fn id(&self) -> &str { "FIN-001" }
-    fn severity(&self) -> Severity { Severity::Error }
+    fn id(&self) -> &str {
+        "FIN-001"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
     fn description(&self) -> &str {
         "Financial values use f64/f32 — use rust_decimal::Decimal instead"
     }
@@ -96,11 +100,19 @@ impl ArchRule for NoF64MoneyRule {
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
-                if is_comment_or_string_line(line) { continue; }
+                if is_comment_or_string_line(line) {
+                    continue;
+                }
                 if pattern.is_match(line) {
                     violations.push(
                         Violation::new(self.id(), self.severity(), &fp,
@@ -122,8 +134,12 @@ impl ArchRule for NoF64MoneyRule {
 pub struct RawDecimalRule;
 
 impl ArchRule for RawDecimalRule {
-    fn id(&self) -> &str { "FIN-002" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "FIN-002"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "Bare Decimal used as struct field type — use a newtype wrapper like Amount(Decimal)"
     }
@@ -134,19 +150,38 @@ impl ArchRule for RawDecimalRule {
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             let lines: Vec<&str> = content.lines().collect();
             for (i, line) in lines.iter().enumerate() {
-                if is_comment_or_string_line(line) { continue; }
-                if newtype_pattern.is_match(line) { continue; }
+                if is_comment_or_string_line(line) {
+                    continue;
+                }
+                if newtype_pattern.is_match(line) {
+                    continue;
+                }
                 if pattern.is_match(line) {
                     violations.push(
-                        Violation::new(self.id(), self.severity(), &fp,
-                            format!("Bare Decimal field type on line {} — wrap in a newtype", i + 1))
-                            .with_lines((i + 1) as u32, (i + 1) as u32)
-                            .with_suggestion("Create a newtype: `struct Amount(Decimal);` and use `Amount` instead"),
+                        Violation::new(
+                            self.id(),
+                            self.severity(),
+                            &fp,
+                            format!(
+                                "Bare Decimal field type on line {} — wrap in a newtype",
+                                i + 1
+                            ),
+                        )
+                        .with_lines((i + 1) as u32, (i + 1) as u32)
+                        .with_suggestion(
+                            "Create a newtype: `struct Amount(Decimal);` and use `Amount` instead",
+                        ),
                     );
                 }
             }
@@ -162,8 +197,12 @@ impl ArchRule for RawDecimalRule {
 pub struct StringlyMoneyRule;
 
 impl ArchRule for StringlyMoneyRule {
-    fn id(&self) -> &str { "FIN-003" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "FIN-003"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "Monetary value stored as String/&str — use a typed Amount newtype"
     }
@@ -175,17 +214,32 @@ impl ArchRule for StringlyMoneyRule {
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
-                if is_comment_or_string_line(line) { continue; }
+                if is_comment_or_string_line(line) {
+                    continue;
+                }
                 if pattern.is_match(line) {
                     violations.push(
-                        Violation::new(self.id(), self.severity(), &fp,
-                            format!("Monetary value as String/&str on line {} — use Amount newtype", i + 1))
-                            .with_lines((i + 1) as u32, (i + 1) as u32)
-                            .with_suggestion("Replace with `Amount` (or similar newtype over Decimal)"),
+                        Violation::new(
+                            self.id(),
+                            self.severity(),
+                            &fp,
+                            format!(
+                                "Monetary value as String/&str on line {} — use Amount newtype",
+                                i + 1
+                            ),
+                        )
+                        .with_lines((i + 1) as u32, (i + 1) as u32)
+                        .with_suggestion("Replace with `Amount` (or similar newtype over Decimal)"),
                     );
                 }
             }
@@ -201,26 +255,38 @@ impl ArchRule for StringlyMoneyRule {
 pub struct MutableTransactionRule;
 
 impl ArchRule for MutableTransactionRule {
-    fn id(&self) -> &str { "FIN-004" }
-    fn severity(&self) -> Severity { Severity::Error }
+    fn id(&self) -> &str {
+        "FIN-004"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
     fn description(&self) -> &str {
         "Transaction/Ledger types must not have &mut self methods — audit trail requires immutability"
     }
 
     fn evaluate(&self, graph: &KnowledgeGraph, project_root: &Path) -> Result<Vec<Violation>> {
-        let trans_pattern = Regex::new(
-            r"\b(transaction|ledger|journal|account|entry|posting)\b",
-        )?;
+        let trans_pattern = Regex::new(r"\b(transaction|ledger|journal|account|entry|posting)\b")?;
         let mut_pattern = Regex::new(r"fn\s+\w+\s*\(\s*&\s*mut\s+self\b")?;
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
-            if !trans_pattern.is_match(&content) { continue; }
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
+            if !trans_pattern.is_match(&content) {
+                continue;
+            }
             for (i, line) in content.lines().enumerate() {
-                if is_comment_or_string_line(line) { continue; }
+                if is_comment_or_string_line(line) {
+                    continue;
+                }
                 if mut_pattern.is_match(line) {
                     violations.push(
                         Violation::new(self.id(), self.severity(), &fp,
@@ -242,21 +308,32 @@ impl ArchRule for MutableTransactionRule {
 pub struct MissingCloneRule;
 
 impl ArchRule for MissingCloneRule {
-    fn id(&self) -> &str { "FIN-005" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "FIN-005"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "Domain value object (Decimal newtype) missing Clone derive — breaks event sourcing"
     }
 
     fn evaluate(&self, graph: &KnowledgeGraph, project_root: &Path) -> Result<Vec<Violation>> {
-        let newtype_pattern = Regex::new(r"(?m)^\s*(pub\s+)?struct\s+(\w+)\s*\(\s*(pub\s+)?Decimal\b")?;
+        let newtype_pattern =
+            Regex::new(r"(?m)^\s*(pub\s+)?struct\s+(\w+)\s*\(\s*(pub\s+)?Decimal\b")?;
         let clone_pattern = Regex::new(r"Clone")?;
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             let lines: Vec<&str> = content.lines().collect();
             for (i, line) in lines.iter().enumerate() {
                 if let Some(caps) = newtype_pattern.captures(line) {
@@ -267,10 +344,21 @@ impl ArchRule for MissingCloneRule {
                         || (i >= 4 && clone_pattern.is_match(lines[i - 4]));
                     if !has_derive {
                         violations.push(
-                            Violation::new(self.id(), self.severity(), &fp,
-                                format!("`{}` wraps Decimal but missing Clone derive on line {}", struct_name, i + 1))
-                                .with_lines((i + 1) as u32, (i + 1) as u32)
-                                .with_suggestion(&format!("Add `#[derive(Clone)]` to `{}`", struct_name)),
+                            Violation::new(
+                                self.id(),
+                                self.severity(),
+                                &fp,
+                                format!(
+                                    "`{}` wraps Decimal but missing Clone derive on line {}",
+                                    struct_name,
+                                    i + 1
+                                ),
+                            )
+                            .with_lines((i + 1) as u32, (i + 1) as u32)
+                            .with_suggestion(&format!(
+                                "Add `#[derive(Clone)]` to `{}`",
+                                struct_name
+                            )),
                         );
                     }
                 }
@@ -287,8 +375,12 @@ impl ArchRule for MissingCloneRule {
 pub struct RcDomainRule;
 
 impl ArchRule for RcDomainRule {
-    fn id(&self) -> &str { "FIN-006" }
-    fn severity(&self) -> Severity { Severity::Error }
+    fn id(&self) -> &str {
+        "FIN-006"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
     fn description(&self) -> &str {
         "Rc used in domain code — use Arc for thread-safe sharing of domain objects"
     }
@@ -298,18 +390,34 @@ impl ArchRule for RcDomainRule {
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            if !is_domain_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            if !is_domain_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
-                if is_comment_or_string_line(line) { continue; }
+                if is_comment_or_string_line(line) {
+                    continue;
+                }
                 if rc_pattern.is_match(line) {
                     violations.push(
-                        Violation::new(self.id(), self.severity(), &fp,
-                            format!("Rc used on line {} in domain code — use Arc", i + 1))
-                            .with_lines((i + 1) as u32, (i + 1) as u32)
-                            .with_suggestion("Replace `Rc` with `Arc` and ensure inner type is Send+Sync"),
+                        Violation::new(
+                            self.id(),
+                            self.severity(),
+                            &fp,
+                            format!("Rc used on line {} in domain code — use Arc", i + 1),
+                        )
+                        .with_lines((i + 1) as u32, (i + 1) as u32)
+                        .with_suggestion(
+                            "Replace `Rc` with `Arc` and ensure inner type is Send+Sync",
+                        ),
                     );
                 }
             }
@@ -325,8 +433,12 @@ impl ArchRule for RcDomainRule {
 pub struct UncheckedArithmeticRule;
 
 impl ArchRule for UncheckedArithmeticRule {
-    fn id(&self) -> &str { "FIN-007" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "FIN-007"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "Unwrap/expect on Decimal arithmetic — use proper error propagation"
     }
@@ -338,11 +450,19 @@ impl ArchRule for UncheckedArithmeticRule {
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
-                if is_comment_or_string_line(line) { continue; }
+                if is_comment_or_string_line(line) {
+                    continue;
+                }
                 if pattern.is_match(line) {
                     violations.push(
                         Violation::new(self.id(), self.severity(), &fp,
@@ -364,8 +484,12 @@ impl ArchRule for UncheckedArithmeticRule {
 pub struct DecimalOverflowRule;
 
 impl ArchRule for DecimalOverflowRule {
-    fn id(&self) -> &str { "FIN-008" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "FIN-008"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "Decimal values use +/- operator — prefer checked methods (add/sub) to prevent silent overflow"
     }
@@ -376,11 +500,19 @@ impl ArchRule for DecimalOverflowRule {
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
-                if is_comment_or_string_line(line) { continue; }
+                if is_comment_or_string_line(line) {
+                    continue;
+                }
                 if plus_pattern.is_match(line) || minus_pattern.is_match(line) {
                     violations.push(
                         Violation::new(self.id(), self.severity(), &fp,
@@ -402,8 +534,12 @@ impl ArchRule for DecimalOverflowRule {
 pub struct MissingSerdeRule;
 
 impl ArchRule for MissingSerdeRule {
-    fn id(&self) -> &str { "FIN-009" }
-    fn severity(&self) -> Severity { Severity::Info }
+    fn id(&self) -> &str {
+        "FIN-009"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
     fn description(&self) -> &str {
         "Domain type missing Serialize/Deserialize derives — needed for persistence and serialization"
     }
@@ -411,28 +547,49 @@ impl ArchRule for MissingSerdeRule {
     fn evaluate(&self, graph: &KnowledgeGraph, project_root: &Path) -> Result<Vec<Violation>> {
         let struct_pattern = Regex::new(r"(?m)^\s*(pub\s+)?struct\s+(\w+)")?;
         let serde_pattern = Regex::new(r"(Serialize|Deserialize)")?;
-        let money_type_pattern = Regex::new(r"\b(Amount|Price|Balance|Money|Principal|Interest|Fee|Rate|Cost|Payment)\b")?;
+        let money_type_pattern = Regex::new(
+            r"\b(Amount|Price|Balance|Money|Principal|Interest|Fee|Rate|Cost|Payment)\b",
+        )?;
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             let lines: Vec<&str> = content.lines().collect();
             for (i, line) in lines.iter().enumerate() {
                 if let Some(caps) = struct_pattern.captures(line) {
                     let struct_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");
-                    if !money_type_pattern.is_match(struct_name) { continue; }
+                    if !money_type_pattern.is_match(struct_name) {
+                        continue;
+                    }
                     let has_serde = (i >= 1 && serde_pattern.is_match(lines[i - 1]))
                         || (i >= 2 && serde_pattern.is_match(lines[i - 2]))
                         || (i >= 3 && serde_pattern.is_match(lines[i - 3]))
                         || (i >= 4 && serde_pattern.is_match(lines[i - 4]));
                     if !has_serde {
                         violations.push(
-                            Violation::new(self.id(), self.severity(), &fp,
-                                format!("`{}` on line {} missing serde derives", struct_name, i + 1))
-                                .with_lines((i + 1) as u32, (i + 1) as u32)
-                                .with_suggestion(&format!("Add `#[derive(Serialize, Deserialize)]` to `{}`", struct_name)),
+                            Violation::new(
+                                self.id(),
+                                self.severity(),
+                                &fp,
+                                format!(
+                                    "`{}` on line {} missing serde derives",
+                                    struct_name,
+                                    i + 1
+                                ),
+                            )
+                            .with_lines((i + 1) as u32, (i + 1) as u32)
+                            .with_suggestion(&format!(
+                                "Add `#[derive(Serialize, Deserialize)]` to `{}`",
+                                struct_name
+                            )),
                         );
                     }
                 }
@@ -449,20 +606,32 @@ impl ArchRule for MissingSerdeRule {
 pub struct MissingValidationRule;
 
 impl ArchRule for MissingValidationRule {
-    fn id(&self) -> &str { "FIN-010" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "FIN-010"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "Decimal newtype missing validation — monetary values should be validated on construction"
     }
 
     fn evaluate(&self, graph: &KnowledgeGraph, project_root: &Path) -> Result<Vec<Violation>> {
-        let newtype_pattern = Regex::new(r"(?m)^\s*(pub\s+)?struct\s+(Amount|Price|Balance|Money|Principal|Interest|Fee|Rate|Cost|Payment)\s*\(\s*(pub\s+)?Decimal\b")?;
+        let newtype_pattern = Regex::new(
+            r"(?m)^\s*(pub\s+)?struct\s+(Amount|Price|Balance|Money|Principal|Interest|Fee|Rate|Cost|Payment)\s*\(\s*(pub\s+)?Decimal\b",
+        )?;
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             let lines: Vec<&str> = content.lines().collect();
             for (i, line) in lines.iter().enumerate() {
                 if let Some(caps) = newtype_pattern.captures(line) {
@@ -493,23 +662,39 @@ impl ArchRule for MissingValidationRule {
 pub struct MissingAuditSpanRule;
 
 impl ArchRule for MissingAuditSpanRule {
-    fn id(&self) -> &str { "FIN-011" }
-    fn severity(&self) -> Severity { Severity::Info }
+    fn id(&self) -> &str {
+        "FIN-011"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Info
+    }
     fn description(&self) -> &str {
         "Transaction apply() method missing tracing span — audit trail requires structured logging"
     }
 
     fn evaluate(&self, graph: &KnowledgeGraph, project_root: &Path) -> Result<Vec<Violation>> {
         let apply_pattern = Regex::new(r"fn\s+apply\s*\(")?;
-        let span_pattern = Regex::new(r"(span!|trace_span|info_span|debug_span|#[instrument]|audit_log|trace_id)")?;
+        let span_pattern = Regex::new(
+            r"(span!|trace_span|info_span|debug_span|#[instrument]|audit_log|trace_id)",
+        )?;
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
-            if !apply_pattern.is_match(&content) { continue; }
-            if span_pattern.is_match(&content) { continue; }
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
+            if !apply_pattern.is_match(&content) {
+                continue;
+            }
+            if span_pattern.is_match(&content) {
+                continue;
+            }
             for (i, line) in content.lines().enumerate() {
                 if apply_pattern.is_match(line) && !is_comment_or_string_line(line) {
                     violations.push(
@@ -532,31 +717,53 @@ impl ArchRule for MissingAuditSpanRule {
 pub struct MissingTraceIdRule;
 
 impl ArchRule for MissingTraceIdRule {
-    fn id(&self) -> &str { "FIN-012" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "FIN-012"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "Domain event/transaction struct missing trace_id: Uuid — required for audit trail correlation"
     }
 
     fn evaluate(&self, graph: &KnowledgeGraph, project_root: &Path) -> Result<Vec<Violation>> {
-        let struct_pattern = Regex::new(r"(?m)^\s*(pub\s+)?struct\s+(\w+(Event|Command|Transaction))\b")?;
+        let struct_pattern =
+            Regex::new(r"(?m)^\s*(pub\s+)?struct\s+(\w+(Event|Command|Transaction))\b")?;
         let trace_pattern = Regex::new(r"\btrace_id\b")?;
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             if !trace_pattern.is_match(&content) {
                 let lines: Vec<&str> = content.lines().collect();
                 for (i, line) in lines.iter().enumerate() {
                     if let Some(caps) = struct_pattern.captures(line) {
                         let struct_name = caps.get(2).map(|m| m.as_str()).unwrap_or("");
                         violations.push(
-                            Violation::new(self.id(), self.severity(), &fp,
-                                format!("`{}` on line {} missing trace_id field", struct_name, i + 1))
-                                .with_lines((i + 1) as u32, (i + 1) as u32)
-                                .with_suggestion(&format!("Add `trace_id: Uuid` field to `{}`", struct_name)),
+                            Violation::new(
+                                self.id(),
+                                self.severity(),
+                                &fp,
+                                format!(
+                                    "`{}` on line {} missing trace_id field",
+                                    struct_name,
+                                    i + 1
+                                ),
+                            )
+                            .with_lines((i + 1) as u32, (i + 1) as u32)
+                            .with_suggestion(&format!(
+                                "Add `trace_id: Uuid` field to `{}`",
+                                struct_name
+                            )),
                         );
                     }
                 }
@@ -573,22 +780,36 @@ impl ArchRule for MissingTraceIdRule {
 pub struct CurrencyOpsRule;
 
 impl ArchRule for CurrencyOpsRule {
-    fn id(&self) -> &str { "FIN-013" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "FIN-013"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "Amount arithmetic without currency match check — can silently mix currencies"
     }
 
     fn evaluate(&self, graph: &KnowledgeGraph, project_root: &Path) -> Result<Vec<Violation>> {
         let amount_op_pattern = Regex::new(r"Amount::(add|sub|mul|div)\s*\(")?;
-        let currency_check_pattern = Regex::new(r"(currency|currency_eq|same_currency|ensure_same_currency|CurrencyMismatch)")?;
+        let currency_check_pattern = Regex::new(
+            r"(currency|currency_eq|same_currency|ensure_same_currency|CurrencyMismatch)",
+        )?;
         let files = get_rust_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
-            if !amount_op_pattern.is_match(&content) { continue; }
+            if is_test_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
+            if !amount_op_pattern.is_match(&content) {
+                continue;
+            }
             if !currency_check_pattern.is_match(&content) {
                 for (i, line) in content.lines().enumerate() {
                     if amount_op_pattern.is_match(line) && !is_comment_or_string_line(line) {
@@ -614,8 +835,12 @@ impl ArchRule for CurrencyOpsRule {
 pub struct PanicDomainRule;
 
 impl ArchRule for PanicDomainRule {
-    fn id(&self) -> &str { "FIN-014" }
-    fn severity(&self) -> Severity { Severity::Error }
+    fn id(&self) -> &str {
+        "FIN-014"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Error
+    }
     fn description(&self) -> &str {
         "panic!/unreachable!/todo! in domain/model code — use proper error handling"
     }
@@ -625,12 +850,22 @@ impl ArchRule for PanicDomainRule {
         let files = get_all_files(graph)?;
         let mut violations = Vec::new();
         for fp in files {
-            if is_test_file(&fp) { continue; }
-            if !is_domain_file(&fp) { continue; }
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue; };
-            let Some(content) = read_file_content(&abs_path) else { continue; };
+            if is_test_file(&fp) {
+                continue;
+            }
+            if !is_domain_file(&fp) {
+                continue;
+            }
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Some(content) = read_file_content(&abs_path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
-                if is_comment_or_string_line(line) { continue; }
+                if is_comment_or_string_line(line) {
+                    continue;
+                }
                 if panic_pattern.is_match(line) {
                     violations.push(
                         Violation::new(self.id(), self.severity(), &fp,

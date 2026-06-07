@@ -249,7 +249,7 @@ mod tests {
         // Failure in HALF_OPEN should reset to OPEN and set new opened_at
         let before = Instant::now();
         cb.record_timeout("hermes_search");
-        
+
         let state = cb.state.lock().unwrap();
         let entry = state.get("hermes_search").unwrap();
         assert_eq!(entry.circuit, CircuitState::Open);

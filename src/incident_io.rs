@@ -1,10 +1,10 @@
 // tools/hermes-engine/src/incident_io.rs
-use anyhow::Result;
-use std::path::{Path, PathBuf};
-use serde_json::json;
 use crate::accounting::Accountant;
-use crate::HermesEngine;
 use crate::graph_types::NodeType;
+use crate::HermesEngine;
+use anyhow::Result;
+use serde_json::json;
+use std::path::{Path, PathBuf};
 
 pub const KNOWN_SUB_PRODUCTS: &[&str] = &[
     "chartapp-server",
@@ -113,7 +113,11 @@ pub fn build_incident_md(
          ## Symptoms\n\
          {symptoms}\n",
         tags = tags.join(", "),
-        status = if resolution.is_some() { "RESOLVED" } else { "OPEN" }
+        status = if resolution.is_some() {
+            "RESOLVED"
+        } else {
+            "OPEN"
+        }
     );
 
     if let Some(res) = resolution {
@@ -180,7 +184,11 @@ pub fn record_incident_event(
     title: &str,
     path: &Path,
 ) -> Result<()> {
-    let acct = Accountant::new(engine.db().clone(), engine.project_id(), engine.session_id());
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
     acct.record_memory_event(event_type, Some(title), Some(&path.to_string_lossy()), None)?;
     Ok(())
 }
@@ -281,5 +289,7 @@ pub fn tool_query_incidents_with_conn(
     let acct = Accountant::from_conn(conn, engine.project_id(), engine.session_id());
     let _ = acct.record_query("query_incidents", 100, 0, 1000);
 
-    Ok(serde_json::to_string_pretty(&json!({ "incidents": results }))?)
+    Ok(serde_json::to_string_pretty(
+        &json!({ "incidents": results }),
+    )?)
 }

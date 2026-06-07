@@ -56,17 +56,27 @@ fn is_test_file(file_path: &str) -> bool {
 pub struct UnwrapInProdRule;
 
 impl ArchRule for UnwrapInProdRule {
-    fn id(&self) -> &str { "SAFETY-001" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "SAFETY-001"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "unwrap() used in non-test Rust production code — prefer ? or expect with message"
     }
 
     fn evaluate(&self, graph: &KnowledgeGraph, project_root: &Path) -> Result<Vec<Violation>> {
         let pattern = Regex::new(r"\.unwrap\(\)").expect("invalid regex");
-        rust_content_scan(graph, project_root, self.id(), self.severity(), &pattern,
+        rust_content_scan(
+            graph,
+            project_root,
+            self.id(),
+            self.severity(),
+            &pattern,
             "unwrap() panics on None/Err — use ? or explicit error handling",
-            "Replace .unwrap() with ? or .unwrap_or_else(|e| panic!(\"context: {e}\"))")
+            "Replace .unwrap() with ? or .unwrap_or_else(|e| panic!(\"context: {e}\"))",
+        )
     }
 }
 
@@ -77,17 +87,27 @@ impl ArchRule for UnwrapInProdRule {
 pub struct ExpectInProdRule;
 
 impl ArchRule for ExpectInProdRule {
-    fn id(&self) -> &str { "SAFETY-002" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "SAFETY-002"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "expect() used in non-test Rust production code — prefer ? propagation"
     }
 
     fn evaluate(&self, graph: &KnowledgeGraph, project_root: &Path) -> Result<Vec<Violation>> {
         let pattern = Regex::new(r"\.expect\(").unwrap();
-        rust_content_scan(graph, project_root, self.id(), self.severity(), &pattern,
+        rust_content_scan(
+            graph,
+            project_root,
+            self.id(),
+            self.severity(),
+            &pattern,
             "expect() panics in production — use ? to propagate errors",
-            "Replace .expect(...) with ? and add context via .context(\"...\")")
+            "Replace .expect(...) with ? and add context via .context(\"...\")",
+        )
     }
 }
 
@@ -137,8 +157,12 @@ fn rust_content_scan(
 pub struct AnyWithoutSafetyRule;
 
 impl ArchRule for AnyWithoutSafetyRule {
-    fn id(&self) -> &str { "SAFETY-003" }
-    fn severity(&self) -> Severity { Severity::Warning }
+    fn id(&self) -> &str {
+        "SAFETY-003"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
     fn description(&self) -> &str {
         "TypeScript `any` type used without a preceding `// SAFETY:` comment"
     }
@@ -164,8 +188,12 @@ impl ArchRule for AnyWithoutSafetyRule {
 
         let mut violations = Vec::new();
         for fp in paths {
-            let Some(abs_path) = resolve_path(project_root, &fp) else { continue };
-            let Ok(content) = std::fs::read_to_string(&abs_path) else { continue };
+            let Some(abs_path) = resolve_path(project_root, &fp) else {
+                continue;
+            };
+            let Ok(content) = std::fs::read_to_string(&abs_path) else {
+                continue;
+            };
             let lines: Vec<&str> = content.lines().collect();
             for (i, line) in lines.iter().enumerate() {
                 if any_pattern.is_match(line) {

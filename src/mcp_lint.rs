@@ -99,11 +99,8 @@ pub fn tool_lint_architecture(
 
     // Build summary
     let total = all_violations.len();
-    let mut by_severity: HashMap<&str, usize> = HashMap::from([
-        ("error", 0),
-        ("warning", 0),
-        ("info", 0),
-    ]);
+    let mut by_severity: HashMap<&str, usize> =
+        HashMap::from([("error", 0), ("warning", 0), ("info", 0)]);
     let mut by_rule: HashMap<String, usize> = HashMap::new();
     let mut unique_ids = std::collections::HashSet::new();
 
@@ -269,7 +266,10 @@ mod tests {
         let result = tool_lint_architecture(&engine, dir.path(), &json!({})).unwrap();
         let v: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(v["mode"], "summary");
-        assert!(v["violations"].is_null(), "summary mode must not emit full violations array");
+        assert!(
+            v["violations"].is_null(),
+            "summary mode must not emit full violations array"
+        );
         assert!(v["summary"]["by_rule_detail"].is_array());
         assert!(v["next"].is_string());
     }
@@ -278,12 +278,8 @@ mod tests {
     fn iterative_mode_requires_rule_id() {
         let engine = crate::HermesEngine::in_memory("lint-iter-noid").unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let err = tool_lint_architecture(
-            &engine,
-            dir.path(),
-            &json!({ "mode": "iterative" }),
-        )
-        .unwrap_err();
+        let err = tool_lint_architecture(&engine, dir.path(), &json!({ "mode": "iterative" }))
+            .unwrap_err();
         assert!(err.to_string().contains("rule_id"));
     }
 
@@ -309,12 +305,8 @@ mod tests {
     fn full_mode_keeps_legacy_violations_array() {
         let engine = crate::HermesEngine::in_memory("lint-full").unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let result = tool_lint_architecture(
-            &engine,
-            dir.path(),
-            &json!({ "mode": "full" }),
-        )
-        .unwrap();
+        let result =
+            tool_lint_architecture(&engine, dir.path(), &json!({ "mode": "full" })).unwrap();
         let v: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(v["mode"], "full");
         assert!(v["violations"].is_array());
@@ -332,12 +324,8 @@ mod tests {
     fn lint_accepts_rule_filter() {
         let engine = crate::HermesEngine::in_memory("lint-rules").unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let result = tool_lint_architecture(
-            &engine,
-            dir.path(),
-            &json!({ "rules": ["SIZE-001"] }),
-        )
-        .unwrap();
+        let result =
+            tool_lint_architecture(&engine, dir.path(), &json!({ "rules": ["SIZE-001"] })).unwrap();
         let v: Value = serde_json::from_str(&result).unwrap();
         assert!(v["summary"].is_object());
     }
@@ -371,12 +359,8 @@ mod tests {
     fn auto_scope_disabled_forces_all_in_summary_mode() {
         let engine = crate::HermesEngine::in_memory("lint-noauto").unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let result = tool_lint_architecture(
-            &engine,
-            dir.path(),
-            &json!({ "auto_scope": false }),
-        )
-        .unwrap();
+        let result =
+            tool_lint_architecture(&engine, dir.path(), &json!({ "auto_scope": false })).unwrap();
         let v: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(v["scope_source"], "all");
     }
@@ -385,12 +369,8 @@ mod tests {
     fn full_mode_does_not_auto_scope() {
         let engine = crate::HermesEngine::in_memory("lint-full-noauto").unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let result = tool_lint_architecture(
-            &engine,
-            dir.path(),
-            &json!({ "mode": "full" }),
-        )
-        .unwrap();
+        let result =
+            tool_lint_architecture(&engine, dir.path(), &json!({ "mode": "full" })).unwrap();
         let v: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(v["scope_source"], "all");
     }

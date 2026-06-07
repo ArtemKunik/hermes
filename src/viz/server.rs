@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tiny_http::{Response, Server as HttpServer, Method, Header};
+use tiny_http::{Header, Method, Response, Server as HttpServer};
 
 use crate::HermesEngine;
 
@@ -12,8 +12,7 @@ const INDEX_HTML: &str = include_str!("static/index.html");
 
 pub fn run_viz_server(engine: &HermesEngine, _project_root: &Path, port: u16) -> Result<()> {
     let addr = format!("0.0.0.0:{port}");
-    let server = HttpServer::http(&addr)
-        .map_err(|e| anyhow::anyhow!("Cannot bind {addr}: {e}"))?;
+    let server = HttpServer::http(&addr).map_err(|e| anyhow::anyhow!("Cannot bind {addr}: {e}"))?;
 
     eprintln!("Hermes viz server running on http://localhost:{port}");
     eprintln!("  Graph view:   http://localhost:{port}");
@@ -54,8 +53,11 @@ fn handle_request(
         "/" | "/index.html" => html(INDEX_HTML),
         "/api/graph" => api_result(crate::viz::api::get_graph_json(engine)),
         path if path == "/api/blast" || path.starts_with("/api/blast?") => {
-            let threshold = request.url().split('?')
-                .nth(1).unwrap_or("")
+            let threshold = request
+                .url()
+                .split('?')
+                .nth(1)
+                .unwrap_or("")
                 .split('&')
                 .find_map(|p| p.strip_prefix("threshold="))
                 .and_then(|v| v.parse::<f64>().ok())
@@ -84,7 +86,9 @@ fn html<'a>(body: &'a str) -> Response<std::io::Cursor<Vec<u8>>> {
 
 fn json<'a>(status: u16, value: serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
     let body = serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string());
-    let h: Header = "Content-Type: application/json; charset=utf-8".parse().unwrap();
+    let h: Header = "Content-Type: application/json; charset=utf-8"
+        .parse()
+        .unwrap();
     Response::from_data(body.into_bytes())
         .with_status_code(status)
         .with_header(h)

@@ -13,7 +13,7 @@ use std::path::Path;
 use crate::{
     arch_rules::{default_rules, Severity},
     graph::KnowledgeGraph,
-    quality::state::{LintBaseline, load, save},
+    quality::state::{load, save, LintBaseline},
     HermesEngine,
 };
 
@@ -22,7 +22,10 @@ use crate::{
 // ---------------------------------------------------------------------------
 
 /// Run all arch rules, return collected violations.
-fn collect_violations(engine: &HermesEngine, project_root: &Path) -> Vec<crate::arch_rules::Violation> {
+fn collect_violations(
+    engine: &HermesEngine,
+    project_root: &Path,
+) -> Vec<crate::arch_rules::Violation> {
     let graph = KnowledgeGraph::new(engine.read_db().clone(), engine.project_id());
     let rules = default_rules();
     let mut out = Vec::new();
@@ -118,7 +121,8 @@ pub fn tool_quality_drift(
         return Ok(json!({
             "status": "no_baseline",
             "message": "Run `hermes quality-baseline` first to record a baseline."
-        }).to_string());
+        })
+        .to_string());
     };
 
     let violations = collect_violations(engine, project_root);
@@ -152,8 +156,8 @@ pub fn tool_quality_drift(
     let new_count = new_violations.len();
     let trend = match new_count.cmp(&fixed_count) {
         std::cmp::Ordering::Greater => "degrading",
-        std::cmp::Ordering::Less    => "improving",
-        std::cmp::Ordering::Equal   => "stable",
+        std::cmp::Ordering::Less => "improving",
+        std::cmp::Ordering::Equal => "stable",
     };
 
     Ok(serde_json::to_string_pretty(&json!({

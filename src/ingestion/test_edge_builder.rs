@@ -50,10 +50,7 @@ fn find_test_files(graph: &KnowledgeGraph) -> Result<Vec<(String, String)>> {
         )?;
         let results: Vec<(String, String)> = stmt
             .query_map(params![graph.project_id()], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
             .filter_map(|r| r.ok())
             .collect();
@@ -169,10 +166,7 @@ mod tests {
 
     #[test]
     fn strip_test_suffix_spec() {
-        assert_eq!(
-            strip_test_suffix("src/api.spec.ts").as_deref(),
-            Some("api")
-        );
+        assert_eq!(strip_test_suffix("src/api.spec.ts").as_deref(), Some("api"));
     }
 
     #[test]

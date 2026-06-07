@@ -4,7 +4,7 @@
 // in the `blast_scores` table for fast MCP tool lookups.
 
 use anyhow::Result;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Risk classification based on blast score relative to codebase size.
@@ -42,7 +42,10 @@ const DEPENDENCY_EDGE_TYPES: &[&str] = &["calls", "imports", "uses", "depends_on
 
 /// Build an in-memory adjacency list for dependency edges only.
 /// Returns a map from target_id → Vec<(source_id, edge_type)>.
-fn build_adjacency_list(conn: &Connection, project_id: &str) -> Result<HashMap<String, Vec<(String, String)>>> {
+fn build_adjacency_list(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<HashMap<String, Vec<(String, String)>>> {
     let mut stmt = conn.prepare(
         "SELECT source_id, target_id, edge_type \
          FROM edges WHERE project_id = ?1 AND edge_type IN (\"calls\",\"imports\",\"uses\",\"depends_on\",\"implements\")",
@@ -68,14 +71,9 @@ fn build_adjacency_list(conn: &Connection, project_id: &str) -> Result<HashMap<S
 ///
 /// For each node, performs BFS following incoming dependency edges up to depth 3.
 /// Score = direct + (0.5 × transitive). Risk levels based on codebase percentage.
-pub fn compute_all_blast_scores(
-    conn: &Connection,
-    project_id: &str,
-) -> Result<usize> {
+pub fn compute_all_blast_scores(conn: &Connection, project_id: &str) -> Result<usize> {
     // Load all nodes in the project
-    let mut node_stmt = conn.prepare(
-        "SELECT id, file_path FROM nodes WHERE project_id = ?1",
-    )?;
+    let mut node_stmt = conn.prepare("SELECT id, file_path FROM nodes WHERE project_id = ?1")?;
     let nodes: Vec<(String, Option<String>)> = node_stmt
         .query_map([project_id], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<_, _>>()?;
@@ -144,10 +142,7 @@ pub fn compute_all_blast_scores(
 }
 
 /// Run BFS from a single node and return (direct_count, transitive_count).
-fn bfs_counts(
-    adj: &HashMap<String, Vec<(String, String)>>,
-    start_id: &str,
-) -> (usize, usize) {
+fn bfs_counts(adj: &HashMap<String, Vec<(String, String)>>, start_id: &str) -> (usize, usize) {
     use std::collections::{HashSet, VecDeque};
 
     let mut visited: HashSet<String> = HashSet::new();
@@ -167,7 +162,10 @@ fn bfs_counts(
         if let Some(upstream_list) = adj.get(&current) {
             for (up_id, etype) in upstream_list {
                 // Only follow dependency edge types
-                if !matches!(etype.as_str(), "calls" | "imports" | "uses" | "depends_on" | "implements") {
+                if !matches!(
+                    etype.as_str(),
+                    "calls" | "imports" | "uses" | "depends_on" | "implements"
+                ) {
                     continue;
                 }
                 if visited.insert(up_id.clone()) {
@@ -200,20 +198,22 @@ pub fn get_blast_score(
          WHERE bs.project_id = ?1 AND (LOWER(n.name) = LOWER(?2) OR bs.file_path = ?2)",
     )?;
 
-    let row = stmt.query_row([project_id, symbol_or_file], |row| {
-        Ok(BlastScore {
-            node_id: row.get(0)?,
-            file_path: row.get::<_, Option<String>>(1)?,
-            direct_count: row.get::<_, i64>(2)? as usize,
-            transitive_count: row.get::<_, i64>(3)? as usize,
-            blast_score: row.get(4)?,
-            risk_level: match &*row.get::<_, String>(5)? {
-                "HIGH" => RiskLevel::High,
-                "MEDIUM" => RiskLevel::Medium,
-                _ => RiskLevel::Low,
-            },
+    let row = stmt
+        .query_row([project_id, symbol_or_file], |row| {
+            Ok(BlastScore {
+                node_id: row.get(0)?,
+                file_path: row.get::<_, Option<String>>(1)?,
+                direct_count: row.get::<_, i64>(2)? as usize,
+                transitive_count: row.get::<_, i64>(3)? as usize,
+                blast_score: row.get(4)?,
+                risk_level: match &*row.get::<_, String>(5)? {
+                    "HIGH" => RiskLevel::High,
+                    "MEDIUM" => RiskLevel::Medium,
+                    _ => RiskLevel::Low,
+                },
+            })
         })
-    }).ok();
+        .ok();
 
     Ok(row)
 }
@@ -265,9 +265,17 @@ mod tests {
         // A → B → C  (A depends on B, B depends on C)
         // From C's perspective: direct=1 (B), transitive=1 (A)
         let adj: HashMap<String, Vec<(String, String)>> = [
-            ("node_c".to_string(), vec![("node_b".to_string(), "imports".to_string())]),
-            ("node_b".to_string(), vec![("node_a".to_string(), "calls".to_string())]),
-        ].into_iter().collect();
+            (
+                "node_c".to_string(),
+                vec![("node_b".to_string(), "imports".to_string())],
+            ),
+            (
+                "node_b".to_string(),
+                vec![("node_a".to_string(), "calls".to_string())],
+            ),
+        ]
+        .into_iter()
+        .collect();
 
         let (direct, transitive) = bfs_counts(&adj, "node_c");
         assert_eq!(direct, 1); // B is direct dependent of C
@@ -284,10 +292,24 @@ mod tests {
         // Both B and C depend on A; D depends on both B and C.
         // From A's perspective: direct=2 (B,C), transitive=1 (D)
         let adj: HashMap<String, Vec<(String, String)>> = [
-            ("node_a".to_string(), vec![("node_b".to_string(), "imports".to_string()), ("node_c".to_string(), "calls".to_string())]),
-            ("node_b".to_string(), vec![("node_d".to_string(), "calls".to_string())]),
-            ("node_c".to_string(), vec![("node_d".to_string(), "calls".to_string())]),
-        ].into_iter().collect();
+            (
+                "node_a".to_string(),
+                vec![
+                    ("node_b".to_string(), "imports".to_string()),
+                    ("node_c".to_string(), "calls".to_string()),
+                ],
+            ),
+            (
+                "node_b".to_string(),
+                vec![("node_d".to_string(), "calls".to_string())],
+            ),
+            (
+                "node_c".to_string(),
+                vec![("node_d".to_string(), "calls".to_string())],
+            ),
+        ]
+        .into_iter()
+        .collect();
 
         let (direct, transitive) = bfs_counts(&adj, "node_a");
         assert_eq!(direct, 2); // B and C are direct dependents of A
@@ -299,11 +321,25 @@ mod tests {
         // Linear chain: E → D → C → B → A
         // From A's perspective at depth limit 3: direct=1, transitive=2 (B,C), D is at depth 4 so excluded
         let adj: HashMap<String, Vec<(String, String)>> = [
-            ("node_a".to_string(), vec![("node_b".to_string(), "imports".to_string())]),
-            ("node_b".to_string(), vec![("node_c".to_string(), "calls".to_string())]),
-            ("node_c".to_string(), vec![("node_d".to_string(), "calls".to_string())]),
-            ("node_d".to_string(), vec![("node_e".to_string(), "calls".to_string())]),
-        ].into_iter().collect();
+            (
+                "node_a".to_string(),
+                vec![("node_b".to_string(), "imports".to_string())],
+            ),
+            (
+                "node_b".to_string(),
+                vec![("node_c".to_string(), "calls".to_string())],
+            ),
+            (
+                "node_c".to_string(),
+                vec![("node_d".to_string(), "calls".to_string())],
+            ),
+            (
+                "node_d".to_string(),
+                vec![("node_e".to_string(), "calls".to_string())],
+            ),
+        ]
+        .into_iter()
+        .collect();
 
         let (direct, transitive) = bfs_counts(&adj, "node_a");
         assert_eq!(direct, 1); // B at depth 1
@@ -313,9 +349,12 @@ mod tests {
     #[test]
     fn test_bfs_excludes_non_dependency_edges() {
         // Node with only Contains edges should have zero blast radius
-        let adj: HashMap<String, Vec<(String, String)>> = [
-            ("node_x".to_string(), vec![("node_y".to_string(), "contains".to_string())]),
-        ].into_iter().collect();
+        let adj: HashMap<String, Vec<(String, String)>> = [(
+            "node_x".to_string(),
+            vec![("node_y".to_string(), "contains".to_string())],
+        )]
+        .into_iter()
+        .collect();
 
         let (direct, transitive) = bfs_counts(&adj, "node_x");
         assert_eq!(direct, 0); // Contains is not a dependency edge
@@ -325,14 +364,22 @@ mod tests {
     #[test]
     fn test_risk_level_thresholds() {
         let high = BlastScore {
-            node_id: "a".into(), file_path: None, direct_count: 20, transitive_count: 10,
-            blast_score: 25.0, risk_level: RiskLevel::High,
+            node_id: "a".into(),
+            file_path: None,
+            direct_count: 20,
+            transitive_count: 10,
+            blast_score: 25.0,
+            risk_level: RiskLevel::High,
         };
         assert_eq!(high.risk_level, RiskLevel::High);
 
         let low = BlastScore {
-            node_id: "b".into(), file_path: None, direct_count: 1, transitive_count: 2,
-            blast_score: 2.0, risk_level: RiskLevel::Low,
+            node_id: "b".into(),
+            file_path: None,
+            direct_count: 1,
+            transitive_count: 2,
+            blast_score: 2.0,
+            risk_level: RiskLevel::Low,
         };
         assert_eq!(low.risk_level, RiskLevel::Low);
     }
@@ -341,8 +388,12 @@ mod tests {
     fn test_blast_score_formula() {
         // direct=3, transitive=4 → score = 3 + (0.5 * 4) = 5.0
         let score = BlastScore {
-            node_id: "x".into(), file_path: None, direct_count: 3, transitive_count: 4,
-            blast_score: 5.0, risk_level: RiskLevel::Low,
+            node_id: "x".into(),
+            file_path: None,
+            direct_count: 3,
+            transitive_count: 4,
+            blast_score: 5.0,
+            risk_level: RiskLevel::Low,
         };
         assert!((score.blast_score - 5.0).abs() < f64::EPSILON);
     }

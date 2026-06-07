@@ -37,12 +37,16 @@ unsafe impl Sync for WeightConn {}
 
 impl WeightStore {
     pub fn new(db: Arc<Mutex<Connection>>) -> Self {
-        WeightStore { db: WeightConn::Shared(db) }
+        WeightStore {
+            db: WeightConn::Shared(db),
+        }
     }
 
     /// TRACK-066: Create a weight store from a raw connection (read-only isolation).
     pub fn from_conn(conn: &Connection) -> Self {
-        WeightStore { db: WeightConn::Borrowed(conn as *const Connection) }
+        WeightStore {
+            db: WeightConn::Borrowed(conn as *const Connection),
+        }
     }
 
     fn with_conn<F, R>(&self, f: F) -> Result<R>
@@ -101,7 +105,10 @@ impl WeightStore {
     }
 
     /// Batch-fetch weights for many nodes at once.
-    pub fn get_weights_for(&self, node_ids: &[&str]) -> Result<std::collections::HashMap<String, f64>> {
+    pub fn get_weights_for(
+        &self,
+        node_ids: &[&str],
+    ) -> Result<std::collections::HashMap<String, f64>> {
         if node_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }

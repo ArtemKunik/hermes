@@ -45,14 +45,19 @@ impl<'a> ProposalStore<'a> {
         let now = Utc::now().to_rfc3339();
         let mut created = Vec::new();
         for p in proposals {
-            let id = p["id"].as_str().map(String::from).unwrap_or_else(|| Uuid::new_v4().to_string());
+            let id = p["id"]
+                .as_str()
+                .map(String::from)
+                .unwrap_or_else(|| Uuid::new_v4().to_string());
             let title = p["title"].as_str().unwrap_or("");
             anyhow::ensure!(!title.is_empty(), "proposal requires 'title'");
             let source = p["source"].as_str().unwrap_or("ideation");
             let priority = p["priority"].as_i64().unwrap_or(5);
             let status = p["status"].as_str().unwrap_or("pending");
             let description = p["description"].as_str();
-            let evidence_ids = p["evidence_ids"].as_array().map(|a| serde_json::to_string(a).unwrap_or_default());
+            let evidence_ids = p["evidence_ids"]
+                .as_array()
+                .map(|a| serde_json::to_string(a).unwrap_or_default());
             let why_it_matters = p["why_it_matters"].as_str();
             let next_step = p["next_step"].as_str();
             let repo = p["repo"].as_str();
@@ -111,14 +116,20 @@ impl<'a> ProposalStore<'a> {
             .map_err(|e| anyhow::anyhow!("proposal not found: {e}"))
     }
 
-    pub fn list(&self, status: Option<&str>, source: Option<&str>, limit: usize) -> Result<Vec<Proposal>> {
+    pub fn list(
+        &self,
+        status: Option<&str>,
+        source: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Proposal>> {
         let mut sql = String::from(
             "SELECT id, project_id, title, description, source, priority, status,
                     evidence_ids, why_it_matters, next_step, rejected_reason,
                     mission_id, repo, fingerprint, created_at, updated_at
-             FROM proposals WHERE project_id = ?1"
+             FROM proposals WHERE project_id = ?1",
         );
-        let mut pv: Vec<rusqlite::types::Value> = vec![rusqlite::types::Value::from(self.project_id.to_string())];
+        let mut pv: Vec<rusqlite::types::Value> =
+            vec![rusqlite::types::Value::from(self.project_id.to_string())];
 
         if let Some(st) = status {
             pv.push(rusqlite::types::Value::from(st.to_string()));
@@ -211,7 +222,12 @@ impl<'a> ProposalStore<'a> {
         self.get(proposal_id)
     }
 
-    pub fn approve(&self, _engine: &crate::HermesEngine, conn: &Connection, proposal_id: &str) -> Result<Value> {
+    pub fn approve(
+        &self,
+        _engine: &crate::HermesEngine,
+        conn: &Connection,
+        proposal_id: &str,
+    ) -> Result<Value> {
         let proposal = self.get(proposal_id)?;
         anyhow::ensure!(
             proposal.status == "pending" || proposal.status == "edited",

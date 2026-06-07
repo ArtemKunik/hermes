@@ -16,15 +16,16 @@ fn kind_abbrev(kind: &str) -> &str {
         "interface" => "if",
         "concept" => "co",
         _ => {
-            if kind.len() >= 2 { &kind[..2] } else { kind }
+            if kind.len() >= 2 {
+                &kind[..2]
+            } else {
+                kind
+            }
         }
     }
 }
 
-fn format_symbol_line(
-    file_path: &str,
-    symbols: &[SymbolRow],
-) -> String {
+fn format_symbol_line(file_path: &str, symbols: &[SymbolRow]) -> String {
     let mut line = String::from(file_path);
     line.push_str(": ");
     for (i, s) in symbols.iter().enumerate() {
@@ -175,7 +176,8 @@ mod tests {
                 blast_score      REAL NOT NULL DEFAULT 0.0,
                 risk_level       TEXT NOT NULL DEFAULT 'LOW'
             );",
-        ).unwrap();
+        )
+        .unwrap();
         conn
     }
 
@@ -215,7 +217,10 @@ mod tests {
             },
         ];
         let line = format_symbol_line("src/auth.rs", &symbols);
-        assert_eq!(line, "src/auth.rs: verify_token:fn:42 AuthService:st:18[login,logout]");
+        assert_eq!(
+            line,
+            "src/auth.rs: verify_token:fn:42 AuthService:st:18[login,logout]"
+        );
     }
 
     #[test]
@@ -225,7 +230,8 @@ mod tests {
             "INSERT INTO symbol_index (project_id, name, file_path, line, kind, exported)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params!["test", "foo", "src/lib.rs", 1, "function", 1],
-        ).unwrap();
+        )
+        .unwrap();
 
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("AGENTS.md");
@@ -245,7 +251,8 @@ mod tests {
             "INSERT INTO symbol_index (project_id, name, file_path, line, kind, exported)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params!["test", "bar", "src/util.rs", 5, "function", 1],
-        ).unwrap();
+        )
+        .unwrap();
 
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("AGENTS.md");
@@ -265,12 +272,14 @@ mod tests {
             "INSERT INTO symbol_index (project_id, name, file_path, line, kind, exported)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params!["test", "a", "src/a.rs", 1, "function", 1],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO symbol_index (project_id, name, file_path, line, kind, exported)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params!["test", "b", "src/b.rs", 2, "function", 1],
-        ).unwrap();
+        )
+        .unwrap();
 
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("AGENTS.md");
@@ -288,12 +297,14 @@ mod tests {
             "INSERT INTO symbol_index (project_id, name, file_path, line, kind, exported)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params!["test", "pub_fn", "src/lib.rs", 1, "function", 1],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO symbol_index (project_id, name, file_path, line, kind, exported)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params!["test", "priv_fn", "src/lib.rs", 5, "function", 0],
-        ).unwrap();
+        )
+        .unwrap();
 
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("AGENTS.md");
@@ -301,10 +312,16 @@ mod tests {
         inject_symbols(&conn, "test", &target, false, 2000).unwrap();
         let content = std::fs::read_to_string(&target).unwrap();
         assert!(content.contains("pub_fn"));
-        assert!(!content.contains("priv_fn"), "private symbols excluded by default");
+        assert!(
+            !content.contains("priv_fn"),
+            "private symbols excluded by default"
+        );
 
         inject_symbols(&conn, "test", &target, true, 2000).unwrap();
         let content = std::fs::read_to_string(&target).unwrap();
-        assert!(content.contains("priv_fn"), "private symbols included with --all");
+        assert!(
+            content.contains("priv_fn"),
+            "private symbols included with --all"
+        );
     }
 }
