@@ -1,5 +1,5 @@
 // tools/hermes-engine/src/search/search_support.rs
-use super::{SearchEngine, SearchMode, SearchResult, SearchTier};
+use super::{SearchMode, SearchResult, SearchTier};
 use crate::graph::{KnowledgeGraph, Node};
 use crate::pointer::{Pointer, PointerResponse};
 use crate::weight::WeightStore;

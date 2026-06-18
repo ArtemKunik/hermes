@@ -4,7 +4,6 @@ pub mod chunker;
 pub mod crawler;
 pub mod env_scanner;
 pub mod file_ops;
-#[cfg(feature = "ast")]
 pub mod lang;
 pub mod llm_enricher;
 pub mod skill_scanner;
@@ -12,11 +11,10 @@ pub mod test_edge_builder;
 pub mod xref_extractor;
 
 use crate::graph::{EdgeType, KnowledgeGraph, NodeType};
-use crate::ingestion::env_scanner::EnvScanner;
+use crate::SearchCacheMap;
 use anyhow::Result;
 use llm_enricher::LlmEnricher;
 use rayon::prelude::*;
-#[cfg(feature = "ast")]
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -32,6 +30,10 @@ pub struct IngestionPipeline<'a> {
     graph: &'a KnowledgeGraph,
     enricher: Option<Arc<LlmEnricher>>,
     env_scanner: env_scanner::EnvScanner,
+    /// Optional search cache handle. When set, automatically flushed on
+    /// completion of `ingest_directory()` so stale code locations are never
+    /// served after a successful re-index.
+    search_cache: Option<Arc<Mutex<SearchCacheMap>>>,
 }
 
 impl<'a> IngestionPipeline<'a> {
@@ -40,11 +42,20 @@ impl<'a> IngestionPipeline<'a> {
             graph,
             enricher: None,
             env_scanner: env_scanner::EnvScanner::new().unwrap(),
+            search_cache: None,
         }
     }
 
     pub fn with_enricher(mut self, enricher: LlmEnricher) -> Self {
         self.enricher = Some(Arc::new(enricher));
+        self
+    }
+
+    /// Attach a search cache handle. The cache will be flushed automatically
+    /// when `ingest_directory()` completes, eliminating the stale-window
+    /// between index completion and manual invalidation at the call site.
+    pub fn with_search_cache(mut self, cache: Arc<Mutex<SearchCacheMap>>) -> Self {
+        self.search_cache = Some(cache);
         self
     }
 
@@ -127,38 +138,34 @@ impl<'a> IngestionPipeline<'a> {
 
         self.cleanup_stale_nodes(&crawled_paths)?;
 
-        #[cfg(feature = "ast")]
-        {
-            let name_to_id = self.build_name_to_id_map()?;
-            for file_path in &to_ingest {
-                if self.is_ast_supported_file(file_path) {
-                    if let Ok(raw) = std::fs::read(file_path) {
-                        let content = String::from_utf8_lossy(&raw);
-                        let path_str = normalize_logical_path(&file_path.to_string_lossy());
-                        let file_node_id = self
-                            .graph
-                            .create_node_builder()
-                            .name(&path_str)
-                            .node_type(NodeType::File)
-                            .build()
-                            .id;
-                        let _ = self.extract_and_store_xrefs(
-                            &content,
-                            &path_str,
-                            &file_node_id,
-                            &name_to_id,
-                        );
-                    }
+        // AST-based cross-reference extraction (available for all supported languages)
+        let name_to_id = self.build_name_to_id_map()?;
+        for file_path in &to_ingest {
+            if self.is_ast_supported_file(file_path) {
+                if let Ok(raw) = std::fs::read(file_path) {
+                    let content = String::from_utf8_lossy(&raw);
+                    let path_str = normalize_logical_path(&file_path.to_string_lossy());
+                    let file_node_id = self
+                        .graph
+                        .create_node_builder()
+                        .name(&path_str)
+                        .node_type(NodeType::File)
+                        .build()
+                        .id;
+                    let _ = self.extract_and_store_xrefs(
+                        &content,
+                        &path_str,
+                        &file_node_id,
+                        &name_to_id,
+                    );
                 }
             }
+        }
 
-            // Recompute blast-radius scores after xref edges are added.
-            let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-            if let Ok(count) =
-                crate::blast_radius::compute_all_blast_scores(&conn, self.graph.project_id())
-            {
-                info!(count, "Recomputed blast-radius scores");
-            }
+        // Recompute blast-radius scores after xref edges are added.
+        let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        if let Ok(count) = crate::blast_radius::compute_all_blast_scores(&conn, self.graph.project_id()) {
+            info!(count, "Recomputed blast-radius scores");
         }
 
         {
@@ -169,6 +176,16 @@ impl<'a> IngestionPipeline<'a> {
         if report.indexed > 0 {
             let conn = self.graph.db().lock().map_err(|e| anyhow::anyhow!("{e}"))?;
             let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+        }
+
+        // Event-driven cache invalidation: flush search cache immediately
+        // after successful index, eliminating the stale-window where previous
+        // file locations would be served despite updated on-disk content.
+        if let Some(ref cache) = self.search_cache {
+            if let Ok(mut c) = cache.lock() {
+                c.clear();
+                info!("Flushed search cache after successful ingestion");
+            }
         }
 
         Ok(report)
@@ -199,19 +216,16 @@ impl<'a> IngestionPipeline<'a> {
         Ok(())
     }
 
-    #[cfg(feature = "ast")]
     fn is_ast_supported_file(&self, file_path: &Path) -> bool {
         let ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or("");
         lang::get_extractor(ext).is_some()
     }
 
-    #[cfg(feature = "ast")]
     fn build_name_to_id_map(&self) -> Result<HashMap<String, String>> {
         let known_nodes = self.graph.get_all_nodes()?;
         Ok(known_nodes.into_iter().map(|n| (n.name, n.id)).collect())
     }
 
-    #[cfg(feature = "ast")]
     fn extract_and_store_xrefs(
         &self,
         content: &str,

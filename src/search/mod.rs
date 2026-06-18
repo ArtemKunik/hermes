@@ -4,7 +4,8 @@ pub mod literal;
 pub(crate) mod search_support;
 pub mod vector;
 
-use crate::graph::{KnowledgeGraph, Node};
+use crate::graph::KnowledgeGraph;
+use crate::graph_types::{Node, NodeType};
 use crate::pointer::{FetchResponse, PointerResponse};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -13,10 +14,18 @@ use std::sync::{Arc, Mutex};
 
 pub use search_support::estimate_tokens;
 
-/// Short-circuit thresholds for tier skipping (Task 1.2).
-/// If L0 already returns top_k results all scoring >= this, skip subsequent tiers.
-const SHORT_CIRCUIT_SKIP_ALL: f64 = 0.9; // Skip L1 + L2
-const SHORT_CIRCUIT_SKIP_L2: f64 = 0.8; // Skip L2 only
+/// Short-circuit thresholds for tier skipping.
+///
+/// Spec: Skip L1+L2 only when L0 yields an exact match (score = 1.0) on
+/// highly structural nodes (Struct, Trait, Class).  For prefix matches
+/// (score >= 0.9), do NOT skip L1 — instead cap FTS5 candidate limits.
+const SHORT_CIRCUIT_SKIP_ALL: f64 = 1.0; // Exact match only — skip L1 + L2
+const PREFIX_MATCH_CAP: f64 = 0.9;       // Prefix match — cap L1 processing, do NOT skip
+
+/// Structural node types that trigger full short-circuit on exact match.
+fn is_structural_node_type(node_type: &NodeType) -> bool {
+    matches!(node_type, NodeType::Struct | NodeType::Trait | NodeType::Interface)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SearchMode {
@@ -42,15 +51,13 @@ pub enum SearchTier {
 
 pub struct SearchEngine<'a> {
     pub(crate) graph: &'a KnowledgeGraph,
-    /// Task 1.3: Shared search result cache (lives on HermesEngine).
+    /// Shared search result cache (lives on HermesEngine).
     pub(crate) search_cache: Arc<Mutex<crate::SearchCacheMap>>,
-    /// Task 3.3: Per-engine fetch content cache (keyed on file_path + line range).
+    /// Per-engine fetch content cache (keyed on file_path + line range).
     pub(crate) fetch_cache: Mutex<HashMap<(String, i64, i64), String>>,
 }
 
 impl<'a> SearchEngine<'a> {
-    /// Create a new SearchEngine with the shared cache from HermesEngine.
-    /// Pass `engine.search_cache()` as the cache argument.
     pub fn new(graph: &'a KnowledgeGraph, search_cache: Arc<Mutex<crate::SearchCacheMap>>) -> Self {
         Self {
             graph,
@@ -60,67 +67,49 @@ impl<'a> SearchEngine<'a> {
     }
 
     pub fn search(&self, query: &str, top_k: usize, mode: &SearchMode) -> Result<PointerResponse> {
-        // Task 1.3: Check search cache first
+        // Check search cache first
         let cache_key = format!("{}:{}", query.trim().to_lowercase(), top_k);
         if let Some(cached) = search_support::get_from_cache(&self.search_cache, &cache_key) {
             return Ok(cached);
         }
 
-        let mut all_results: Vec<SearchResult> = Vec::new();
-
-        // L0: literal search (Task 1.1: SQL-indexed, no full table scan)
+        // L0: literal search (SQL-indexed, no full table scan)
         let l0_results = literal::literal_search(self.graph, query)?;
 
-        // Task 1.2: Short-circuit if L0 already provides high-confidence top_k hits
-        if l0_results.len() >= top_k {
-            let min_score = l0_results
-                .iter()
-                .take(top_k)
-                .map(|r| r.score)
-                .fold(f64::INFINITY, f64::min);
-
-            if min_score >= SHORT_CIRCUIT_SKIP_ALL {
-                // Skip L1 and L2 entirely
-                let weights = search_support::load_weights(self.graph, &l0_results);
-                let merged = search_support::deduplicate_and_rank(l0_results, top_k, &weights);
-                let pointers = search_support::results_to_pointers(&merged, mode);
-                let response = PointerResponse::build(pointers, 0);
-                search_support::insert_into_cache(&self.search_cache, cache_key, response.clone());
-                return Ok(response);
-            }
-
-            if min_score >= SHORT_CIRCUIT_SKIP_L2 {
-                // Run L1, then skip L2
-                all_results.extend(l0_results);
-                let l1_results = fts::fts_search(self.graph, query)?;
-                all_results.extend(l1_results);
-                let weights = search_support::load_weights(self.graph, &all_results);
-                let merged = search_support::deduplicate_and_rank(all_results, top_k, &weights);
-                let pointers = search_support::results_to_pointers(&merged, mode);
-                let response = PointerResponse::build(pointers, 0);
-                search_support::insert_into_cache(&self.search_cache, cache_key, response.clone());
-                return Ok(response);
-            }
+        // Short-circuit: only skip L1+L2 for exact score=1.0 matches on structural nodes
+        if l0_results.iter().any(|r| {
+            (r.score - SHORT_CIRCUIT_SKIP_ALL).abs() < f64::EPSILON
+                && is_structural_node_type(&r.node.node_type)
+        }) {
+            let weights = search_support::load_weights(self.graph, &l0_results);
+            let merged = search_support::deduplicate_and_rank(l0_results, top_k, &weights);
+            let pointers = search_support::results_to_pointers(&merged, mode);
+            let response = PointerResponse::build(pointers, 0);
+            search_support::insert_into_cache(&self.search_cache, cache_key, response.clone());
+            return Ok(response);
         }
 
-        // Run all three tiers
+        // Prefix match (score >= 0.9): run L1 with reduced limit, do NOT skip
+        let prefix_match = l0_results.iter().any(|r| r.score >= PREFIX_MATCH_CAP);
+
+        let mut all_results: Vec<SearchResult> = Vec::new();
         all_results.extend(l0_results);
 
-        let l1_results = fts::fts_search(self.graph, query)?;
+        // L1: FTS search with reduced limit for prefix matches
+        let fts_limit = if prefix_match { 5 } else { 20 };
+        let l1_results = fts::fts_search_with_limit(self.graph, query, fts_limit)?;
         all_results.extend(l1_results);
 
-        // Build a deduplicated candidate set from L0+L1 for vector reranking.
-        // L2 scores only these nodes (O(candidates)) instead of the full index.
-        // Falls back to full scan only when L0+L1 produced nothing.
+        // Build deduplicated candidate set for graph-weight enhancement
         let mut seen = std::collections::HashSet::new();
-        let candidates: Vec<crate::graph::Node> = all_results
+        let l0_l1_node_ids: Vec<String> = all_results
             .iter()
             .filter(|r| seen.insert(r.node.id.clone()))
-            .map(|r| r.node.clone())
+            .map(|r| r.node.id.clone())
             .collect();
 
-        let l2_results = self.run_vector_rerank(query, candidates)?;
-        all_results.extend(l2_results);
+        // Apply graph-weighted BM25 enhancement to L0+L1 scores
+        let _ = vector::apply_graph_weight(self.graph, &l0_l1_node_ids, &mut all_results);
 
         let weights = search_support::load_weights(self.graph, &all_results);
         let merged = search_support::deduplicate_and_rank(all_results, top_k, &weights);
@@ -130,31 +119,17 @@ impl<'a> SearchEngine<'a> {
         Ok(response)
     }
 
-    fn run_vector_rerank(
-        &self,
-        query: &str,
-        candidates: Vec<crate::graph::Node>,
-    ) -> Result<Vec<SearchResult>> {
-        // Avoid a full-repo vector scan when L0 + L1 found nothing.
-        // On large repos this path can run longer than the MCP tool budget and
-        // starve the shared Hermes proxy, which then makes stats look stale.
-        if candidates.is_empty() {
-            return Ok(Vec::new());
-        }
-        vector::vector_search(self.graph, query, candidates)
-    }
-
     pub fn fetch(&self, pointer_id: &str) -> Result<Option<FetchResponse>> {
         let node = self.graph.get_node(pointer_id)?;
         let Some(node) = node else {
             return Ok(None);
         };
 
-        // Task 3.3: Fetch content cache
+        // Fetch content cache
         let content = search_support::read_node_content_cached(&self.fetch_cache, &node)?;
         let stale = search_support::detect_staleness(&node, &content);
 
-        // Task 3.1: Word-count based token estimate (more accurate than byte / 4)
+        // Word-count based token estimate
         let token_count = estimate_tokens(&content);
 
         Ok(Some(FetchResponse {
@@ -176,23 +151,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn short_circuit_skips_on_high_l0_confidence() {
-        // Verify the short-circuit threshold constants are correct
-        assert!(SHORT_CIRCUIT_SKIP_ALL > SHORT_CIRCUIT_SKIP_L2);
-        assert!(SHORT_CIRCUIT_SKIP_ALL <= 1.0);
-        assert!(SHORT_CIRCUIT_SKIP_L2 > 0.0);
+    fn short_circuit_thresholds_are_correct() {
+        assert_eq!(SHORT_CIRCUIT_SKIP_ALL, 1.0);
+        assert!(PREFIX_MATCH_CAP < SHORT_CIRCUIT_SKIP_ALL);
+        assert!(PREFIX_MATCH_CAP > 0.0);
     }
 
     #[test]
-    fn vector_rerank_skips_when_candidates_are_empty() {
-        let engine = crate::HermesEngine::in_memory("test-vector-skip").unwrap();
-        let graph = crate::graph::KnowledgeGraph::new(engine.db().clone(), engine.project_id());
-        let search = SearchEngine::new(&graph, engine.search_cache());
-
-        let results = search
-            .run_vector_rerank("nohits", Vec::new())
-            .expect("vector rerank should succeed");
-
-        assert!(results.is_empty());
+    fn structural_node_types_includes_struct_trait_interface() {
+        assert!(is_structural_node_type(&NodeType::Struct));
+        assert!(is_structural_node_type(&NodeType::Trait));
+        assert!(is_structural_node_type(&NodeType::Interface));
+        assert!(!is_structural_node_type(&NodeType::Function));
+        assert!(!is_structural_node_type(&NodeType::File));
+        assert!(!is_structural_node_type(&NodeType::Enum));
     }
 }

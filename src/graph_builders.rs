@@ -1,6 +1,26 @@
 ﻿// ChartApp/hermes-engine/src/graph_builders.rs
 use crate::graph::{Edge, EdgeType, Node, NodeType};
-use uuid::Uuid;
+use sha2::{Digest, Sha256};
+
+/// Generate a deterministic node ID from a node's stable attributes.
+/// Uses SHA-256(file_path + node_type + symbol_signature) so re-indexing
+/// produces the same ID, preserving reinforcement/decay weights across runs.
+pub fn deterministic_node_id(
+    project_id: &str,
+    file_path: &str,
+    node_type: &str,
+    name: &str,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(project_id.as_bytes());
+    hasher.update(b"::");
+    hasher.update(file_path.as_bytes());
+    hasher.update(b"::");
+    hasher.update(node_type.as_bytes());
+    hasher.update(b"::");
+    hasher.update(name.as_bytes());
+    hex::encode(hasher.finalize())
+}
 
 pub struct NodeBuilder {
     node: Node,
@@ -10,7 +30,7 @@ impl NodeBuilder {
     pub(crate) fn new(project_id: &str) -> Self {
         Self {
             node: Node {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 project_id: project_id.to_string(),
                 name: String::new(),
                 node_type: NodeType::Concept,
@@ -61,7 +81,15 @@ impl NodeBuilder {
         self
     }
 
-    pub fn build(self) -> Node {
+    pub fn build(mut self) -> Node {
+        if self.node.id.is_empty() {
+            self.node.id = deterministic_node_id(
+                &self.node.project_id,
+                self.node.file_path.as_deref().unwrap_or("unknown"),
+                self.node.node_type.as_str(),
+                &self.node.name,
+            );
+        }
         self.node
     }
 }
@@ -74,7 +102,7 @@ impl EdgeBuilder {
     pub(crate) fn new(project_id: &str) -> Self {
         Self {
             edge: Edge {
-                id: Uuid::new_v4().to_string(),
+                id: String::new(),
                 project_id: project_id.to_string(),
                 source_id: String::new(),
                 target_id: String::new(),
@@ -104,7 +132,18 @@ impl EdgeBuilder {
         self
     }
 
-    pub fn build(self) -> Edge {
+    pub fn build(mut self) -> Edge {
+        if self.edge.id.is_empty() {
+            let mut hasher = Sha256::new();
+            hasher.update(self.edge.project_id.as_bytes());
+            hasher.update(b"::");
+            hasher.update(self.edge.source_id.as_bytes());
+            hasher.update(b"::");
+            hasher.update(self.edge.target_id.as_bytes());
+            hasher.update(b"::");
+            hasher.update(self.edge.edge_type.as_str().as_bytes());
+            self.edge.id = hex::encode(hasher.finalize());
+        }
         self.edge
     }
 }

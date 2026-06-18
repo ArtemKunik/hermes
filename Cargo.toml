@@ -34,6 +34,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 shared-rust = { path = "../../ChartApp/shared-rust" }
 
 [features]
+default = ["ast"]
 ast = ["dep:tree-sitter", "dep:tree-sitter-rust", "dep:tree-sitter-typescript", "dep:tree-sitter-python"]
 
 [dependencies.tree-sitter]

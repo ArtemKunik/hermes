@@ -1,5 +1,6 @@
 // ChartApp/hermes-engine/src/search/fts.rs
 use crate::graph::{KnowledgeGraph, Node};
+use crate::graph_ops::split_identifier;
 use crate::search::{SearchResult, SearchTier};
 use anyhow::Result;
 
@@ -7,9 +8,9 @@ const FTS_LIMIT: usize = 20;
 const STRATEGY_MIN_RESULTS: usize = 3;
 const MAX_QUERY_WORDS: usize = 10;
 
-/// Task 2.1: Three-strategy FTS with phrase → AND-prefix → OR fallback.
+/// FTS search with configurable result limit. Three-strategy phrase → AND-prefix → OR fallback.
 /// Truncates to first 10 meaningful words to avoid degenerate queries on long strings.
-pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResult>> {
+pub fn fts_search_with_limit(graph: &KnowledgeGraph, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
     let words = extract_query_terms(query);
 
     if words.is_empty() {
@@ -18,12 +19,12 @@ pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResul
 
     if words.len() == 1 {
         let single = quote_fts_term(&words[0]);
-        return Ok(to_search_results(graph.fts_search(&single, FTS_LIMIT)?));
+        return Ok(to_search_results(graph.fts_search(&single, limit)?));
     }
 
     // Strategy 1: Exact phrase match — highest precision
     let phrase_query = format!("\"{}\"", words.join(" "));
-    let s1 = graph.fts_search(&phrase_query, FTS_LIMIT)?;
+    let s1 = graph.fts_search(&phrase_query, limit)?;
     if s1.len() >= STRATEGY_MIN_RESULTS {
         return Ok(to_search_results(s1));
     }
@@ -34,7 +35,7 @@ pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResul
         .map(|w| format!("{}*", quote_fts_term(w)))
         .collect::<Vec<_>>()
         .join(" AND ");
-    let s2 = graph.fts_search(&and_query, FTS_LIMIT)?;
+    let s2 = graph.fts_search(&and_query, limit)?;
     if s2.len() >= STRATEGY_MIN_RESULTS {
         return Ok(to_search_results(s2));
     }
@@ -45,7 +46,12 @@ pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResul
         .map(|w| quote_fts_term(w))
         .collect::<Vec<_>>()
         .join(" OR ");
-    Ok(to_search_results(graph.fts_search(&or_query, FTS_LIMIT)?))
+    Ok(to_search_results(graph.fts_search(&or_query, limit)?))
+}
+
+/// Three-strategy FTS with default limit (20). Delegates to the parameterized variant.
+pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResult>> {
+    fts_search_with_limit(graph, query, FTS_LIMIT)
 }
 
 fn extract_query_terms(query: &str) -> Vec<String> {
@@ -54,6 +60,14 @@ fn extract_query_terms(query: &str) -> Vec<String> {
         .filter(|w| !is_fts_operator(w))
         .map(sanitize_term)
         .filter(|w| !w.is_empty())
+        .flat_map(|w| {
+            let splits: Vec<String> = split_identifier(&w);
+            if splits.len() > 1 {
+                splits
+            } else {
+                vec![w]
+            }
+        })
         .take(MAX_QUERY_WORDS)
         .collect()
 }

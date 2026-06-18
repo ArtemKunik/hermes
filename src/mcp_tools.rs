@@ -116,9 +116,9 @@ pub fn tool_index(engine: &HermesEngine, project_root: &Path) -> Result<String> 
     maybe_sleep_for_test_index_delay();
 
     let graph = KnowledgeGraph::new(engine.db().clone(), engine.project_id());
-    let pipeline = IngestionPipeline::new(&graph);
+    let pipeline = IngestionPipeline::new(&graph)
+        .with_search_cache(engine.search_cache());
     let report = pipeline.ingest_directory(project_root)?;
-    engine.invalidate_search_cache();
     eprintln!(
         "[hermes:index] status=completed project_root={} current_pid={} total_files={} indexed={} skipped={} errors={} nodes_created={}",
         project_root.display(),

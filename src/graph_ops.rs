@@ -1,8 +1,59 @@
 // tools/hermes-engine/src/graph_ops.rs
 use crate::graph::KnowledgeGraph;
 use crate::graph_types::{Edge, EdgeType, Node, NodeType};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use rusqlite::params;
+
+/// Split camelCase and snake_case identifiers into individual words.
+/// e.g. "fetchExchangeRate" => ["fetch", "exchange", "rate"]
+///      "get_user_data"      => ["get", "user", "data"]
+pub fn split_identifier(ident: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+
+    for ch in ident.chars() {
+        if ch == '_' {
+            if !current.is_empty() {
+                words.push(current.clone());
+                current.clear();
+            }
+        } else if ch.is_uppercase() {
+            if !current.is_empty() {
+                words.push(current.clone());
+                current.clear();
+            }
+            current.push(ch.to_ascii_lowercase());
+        } else {
+            current.push(ch);
+        }
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+}
+
+/// Enrich content for FTS indexing by appending camelCase/snake_case splits.
+/// This allows natural-language queries like "fetch exchange rate" to match
+/// identifiers like `fetchExchangeRate` in code.
+pub fn enrich_content_for_fts(name: &str, content: &str) -> String {
+    let mut extra = Vec::new();
+    for token in name.split(|c: char| !c.is_alphanumeric() && c != '_') {
+        if token.len() > 1 {
+            extra.extend(split_identifier(token));
+        }
+    }
+    for token in content.split_whitespace() {
+        let cleaned: String = token.chars().filter(|c| c.is_alphanumeric() || *c == '_').collect();
+        if cleaned.len() > 1 {
+            extra.extend(split_identifier(&cleaned));
+        }
+    }
+    if extra.is_empty() {
+        return content.to_string();
+    }
+    format!("{}\n{}", content, extra.join(" "))
+}
 
 impl KnowledgeGraph {
     pub fn get_neighbors(&self, node_id: &str) -> Result<Vec<(Edge, Node)>> {
@@ -47,14 +98,11 @@ impl KnowledgeGraph {
 
     pub fn index_fts(&self, node: &Node, content: &str) -> Result<()> {
         self.with_conn(|conn| {
+            let enriched = enrich_content_for_fts(&node.name, content);
             conn.execute(
-                "DELETE FROM fts_content WHERE node_id = ?1",
-                params![node.id],
-            )?;
-            conn.execute(
-                "INSERT INTO fts_content (node_id, project_id, name, content, file_path)
+                "INSERT OR REPLACE INTO fts_content (node_id, project_id, name, content, file_path)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![node.id, node.project_id, node.name, content, node.file_path,],
+                params![node.id, node.project_id, node.name, enriched, node.file_path,],
             )?;
             Ok(())
         })

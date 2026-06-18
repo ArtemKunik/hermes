@@ -3,7 +3,7 @@ use crate::ingestion::env_scanner::{DiscoveredEnvVar, EnvScanner};
 use crate::ingestion::llm_enricher::LlmEnricher;
 use crate::ingestion::normalize_logical_path;
 use anyhow::Result;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 fn is_exported(content: &str) -> bool {
@@ -85,22 +85,25 @@ pub fn ingest_file_inner(
     let path_str = normalize_logical_path(&file_path.to_string_lossy());
 
     #[cfg(feature = "ast")]
-    let (ast_chunks, regex_chunks) = if file_path.extension().and_then(|s| s.to_str()) == Some("rs")
-    {
-        match crate::ingestion::ast_chunker::AstChunker::new()
-            .and_then(|mut c| c.chunk_file(file_path, &content))
-        {
-            Ok(chunks) => (chunks, Vec::new()),
-            Err(_) => (
+    let (ast_chunks, regex_chunks) = {
+        let ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        let supported = ["rs", "ts", "tsx", "js", "jsx", "py"];
+        if supported.contains(&ext) {
+            match crate::ingestion::ast_chunker::AstChunker::new()
+                .and_then(|mut c| c.chunk_file(file_path, &content))
+            {
+                Ok(chunks) => (chunks, Vec::new()),
+                Err(_) => (
+                    Vec::new(),
+                    crate::ingestion::chunker::chunk_file(file_path, &content),
+                ),
+            }
+        } else {
+            (
                 Vec::new(),
                 crate::ingestion::chunker::chunk_file(file_path, &content),
-            ),
+            )
         }
-    } else {
-        (
-            Vec::new(),
-            crate::ingestion::chunker::chunk_file(file_path, &content),
-        )
     };
 
     #[cfg(not(feature = "ast"))]
