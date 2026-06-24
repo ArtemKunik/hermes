@@ -1,6 +1,0 @@
-node_modules/
-.DS_Store
-*.mcpb
-.vercel
-bun.lock
-opencode.json

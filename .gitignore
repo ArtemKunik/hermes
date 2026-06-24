@@ -35,3 +35,17 @@ opencode.json
 .claude/
 .opencode/
 output/
+
+# Local environment config
+.mcp.json
+
+# Random screenshots / clipboard images at root
+/*.png
+/*.jpg
+/*.jpeg
+
+# Excalidraw MCP (not part of OSS)
+tools/excalidraw-mcp/
+
+# Backup directory
+hermes-engine.bak/
