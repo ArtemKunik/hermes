@@ -19,11 +19,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 fn add_config_registry_table(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS config_registry (
+            project_id  TEXT NOT NULL,
             key         TEXT NOT NULL,
             is_defined  INTEGER NOT NULL DEFAULT 0,
             is_used     INTEGER NOT NULL DEFAULT 0,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (key)
+            PRIMARY KEY (project_id, key)
         );",
     )?;
     Ok(())
@@ -38,11 +39,39 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
     Ok(count > 0)
 }
 
-/// Adds project_id to config_registry if missing (older DBs).
+/// Adds project_id to config_registry if missing (older DBs) and migrates to
+/// composite primary key (project_id, key) from legacy single-key schema.
 fn ensure_config_registry_project_id(conn: &Connection) -> Result<()> {
     if !column_exists(conn, "config_registry", "project_id")? {
         conn.execute_batch(
             "ALTER TABLE config_registry ADD COLUMN project_id TEXT NOT NULL DEFAULT 'unknown';",
+        )?;
+    }
+
+    let pk_is_single: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('config_registry') pk
+         JOIN pragma_table_info('config_registry') t USING (name)
+         WHERE pk.pk > 0 AND t.name = 'key'",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if pk_is_single {
+        conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE config_registry_v2 (
+                 project_id  TEXT NOT NULL,
+                 key         TEXT NOT NULL,
+                 is_defined  INTEGER NOT NULL DEFAULT 0,
+                 is_used     INTEGER NOT NULL DEFAULT 0,
+                 created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                 PRIMARY KEY (project_id, key)
+             );
+             INSERT OR IGNORE INTO config_registry_v2 (project_id, key, is_defined, is_used, created_at)
+                 SELECT project_id, key, is_defined, is_used, created_at FROM config_registry;
+             DROP TABLE config_registry;
+             ALTER TABLE config_registry_v2 RENAME TO config_registry;
+             COMMIT;",
         )?;
     }
     Ok(())
