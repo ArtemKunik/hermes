@@ -84,13 +84,13 @@ impl KnowledgeGraph {
     pub fn get_all_node_vectors(&self) -> Result<Vec<(Node, Vec<f32>)>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, vector
+                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type, vector
                  FROM nodes WHERE project_id = ?1 AND vector IS NOT NULL",
             )?;
             let rows = stmt
                 .query_map(params![self.project_id()], |row| {
                     let node = crate::graph_queries::node_from_row(row)?;
-                    let blob: Vec<u8> = row.get(9)?;
+                    let blob: Vec<u8> = row.get(11)?;
                     Ok((node, blob))
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -112,17 +112,17 @@ impl KnowledgeGraph {
                 .collect::<Vec<_>>()
                 .join(", ");
             let sql = format!(
-                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, vector
+                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type, vector
                  FROM nodes
                  WHERE project_id = ?1 AND vector IS NOT NULL AND id IN ({placeholders})"
             );
             let mut stmt = conn.prepare(&sql)?;
             let params_iter =
-                std::iter::once(self.project_id().as_str()).chain(node_ids.iter().map(String::as_str));
+                std::iter::once(self.project_id()).chain(node_ids.iter().map(String::as_str));
             let rows = stmt
                 .query_map(rusqlite::params_from_iter(params_iter), |row| {
                     let node = crate::graph_queries::node_from_row(row)?;
-                    let blob: Vec<u8> = row.get(9)?;
+                    let blob: Vec<u8> = row.get(11)?;
                     Ok((node, blob))
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;

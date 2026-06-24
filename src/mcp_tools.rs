@@ -12,6 +12,7 @@ use crate::{
     mcp_tools_validation::{tool_check_consistency, tool_validate_env},
     search::{SearchEngine, SearchMode},
     temporal::{FactType, TemporalStore},
+    temporal_types::AddFactInput,
     HermesEngine,
 };
 
@@ -271,15 +272,33 @@ fn tool_mcp_status(engine: &HermesEngine) -> Result<String> {
 
 fn tool_add_fact(engine: &HermesEngine, fact_type_str: &str, content: &str) -> Result<String> {
     let store = TemporalStore::new(engine.db().clone(), engine.project_id());
-    let id = store.add_fact(None, FactType::parse_str(fact_type_str), content, None)?;
+    let input = AddFactInput {
+        node_id: None,
+        fact_type: FactType::parse_str(fact_type_str),
+        content,
+        topic: None,
+        tags: vec![],
+        confidence: None,
+        ttl: None,
+        source_reference: None,
+        provenance: None,
+        repo_id: None,
+        agent_id: None,
+    };
+    let id = store.add_fact(input)?;
     Ok(serde_json::to_string_pretty(
         &json!({ "id": id, "status": "recorded" }),
     )?)
 }
 
 fn tool_list_facts(engine: &HermesEngine, filter: Option<&str>) -> Result<String> {
+    use crate::temporal_types::FactFilter;
     let store = TemporalStore::new(engine.db().clone(), engine.project_id());
-    let facts = store.get_active_facts(filter.map(FactType::parse_str).as_ref())?;
+    let fact_filter = FactFilter {
+        fact_type: filter.map(FactType::parse_str),
+        ..Default::default()
+    };
+    let facts = store.get_active_facts(&fact_filter)?;
     Ok(serde_json::to_string_pretty(&facts)?)
 }
 

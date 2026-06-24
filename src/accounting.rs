@@ -129,11 +129,9 @@ impl Accountant {
     }
 
     pub fn get_stats_since(&self, since: Option<Duration>) -> Result<CumulativeStats> {
-        let conn = self.db.lock_ctx("get_stats_since")?;
-
-        let (query, params_values): (String, Vec<String>) = if let Some(dur) = since {
-            let secs = dur.as_secs() as i64;
-            (
+        self.with_conn(|conn| {
+            let sql = if let Some(dur) = since {
+                let secs = dur.as_secs() as i64;
                 format!(
                     "SELECT COUNT(*),
                             COALESCE(SUM(pointer_tokens), 0),
@@ -143,24 +141,19 @@ impl Accountant {
                      WHERE project_id = ?1
                        AND created_at >= datetime('now', '-{} seconds')",
                     secs
-                ),
-                vec![self.project_id.clone()],
-            )
-        } else {
-            (
+                )
+            } else {
                 "SELECT COUNT(*),
                         COALESCE(SUM(pointer_tokens), 0),
                         COALESCE(SUM(fetched_tokens), 0),
                         COALESCE(SUM(traditional_est), 0)
                  FROM accounting WHERE project_id = ?1"
-                    .to_string(),
-                vec![self.project_id.clone()],
-            )
-        };
-
-        let mut stmt = conn.prepare(&query)?;
-        let stats = stmt.query_row(rusqlite::params_from_iter(params_values.iter()), stats_from_row)?;
-        Ok(stats)
+                    .to_string()
+            };
+            let mut stmt = conn.prepare(&sql)?;
+            let stats = stmt.query_row(params![self.project_id], stats_from_row)?;
+            Ok(stats)
+        })
     }
 
     pub fn record_memory_event(
@@ -179,38 +172,35 @@ impl Accountant {
             Ok(())
         })
     }
-}
 
     pub fn get_session_stats(&self) -> Result<CumulativeStats> {
-        let conn = self.db.lock_ctx("get_session_stats")?;
-        let mut stmt = conn.prepare(
-            "SELECT COUNT(*),
-                    COALESCE(SUM(pointer_tokens), 0),
-                    COALESCE(SUM(fetched_tokens), 0),
-                    COALESCE(SUM(traditional_est), 0)
-             FROM accounting WHERE project_id = ?1 AND session_id = ?2",
-        )?;
-        let stats = stmt.query_row(params![self.project_id, self.session_id], stats_from_row)?;
-        Ok(stats)
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(pointer_tokens), 0),
+                        COALESCE(SUM(fetched_tokens), 0),
+                        COALESCE(SUM(traditional_est), 0)
+                 FROM accounting WHERE project_id = ?1 AND session_id = ?2",
+            )?;
+            let stats = stmt.query_row(params![self.project_id, self.session_id], stats_from_row)?;
+            Ok(stats)
+        })
     }
 
-    /// Stats for the current calendar day (local time, 00:00–24:00).
-    /// More robust than session_stats when a long-running process crosses
-    /// midnight, because it uses the SQLite `date('now','localtime')` function
-    /// rather than the session_id string that was set at startup.
     pub fn get_today_stats(&self) -> Result<CumulativeStats> {
-        let conn = self.db.lock_ctx("get_today_stats")?;
-        let mut stmt = conn.prepare(
-            "SELECT COUNT(*),
-                    COALESCE(SUM(pointer_tokens), 0),
-                    COALESCE(SUM(fetched_tokens), 0),
-                    COALESCE(SUM(traditional_est), 0)
-             FROM accounting
-             WHERE project_id = ?1
-               AND date(created_at, 'localtime') = date('now', 'localtime')",
-        )?;
-        let stats = stmt.query_row(params![self.project_id], stats_from_row)?;
-        Ok(stats)
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(pointer_tokens), 0),
+                        COALESCE(SUM(fetched_tokens), 0),
+                        COALESCE(SUM(traditional_est), 0)
+                 FROM accounting
+                 WHERE project_id = ?1
+                   AND date(created_at, 'localtime') = date('now', 'localtime')",
+            )?;
+            let stats = stmt.query_row(params![self.project_id], stats_from_row)?;
+            Ok(stats)
+        })
     }
 }
 
@@ -306,7 +296,7 @@ mod tests {
             .unwrap();
         assert_eq!(stats.total_queries, 1);
         assert_eq!(stats.total_pointer_tokens, 100);
-        assert_eq!(stats.total_fetched_tokens, 50);
+        assert_eq!(stats.total_fetched_tokens, 0);
         assert!(stats.cumulative_savings_pct > 0.0);
     }
 

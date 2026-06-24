@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 pub use crate::graph_builders::{EdgeBuilder, NodeBuilder};
 pub use crate::graph_support::{blob_to_f32_vector, f32_slice_to_blob, OptionalRow};
-pub use crate::graph_types::{Edge, EdgeType, Node, NodeType};
+pub use crate::graph_types::{ChunkWriteRecord, Edge, EdgeType, Node, NodeType};
 
 pub struct KnowledgeGraph {
     db: GraphConn,
