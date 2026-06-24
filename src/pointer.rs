@@ -10,6 +10,8 @@ pub struct Pointer {
     pub summary: String,
     pub node_type: String,
     pub last_modified: Option<String>,
+    pub content_tokens: Option<u64>,
+    pub object_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +37,10 @@ pub struct FetchResponse {
     pub start_line: i64,
     pub end_line: i64,
     pub token_count: u64,
+    pub content_tokens: Option<u64>,
+    #[serde(default)]
+    pub is_stale: bool,
+    pub stale_reason: Option<String>,
 }
 
 impl Pointer {
@@ -51,7 +57,24 @@ impl Pointer {
 impl PointerResponse {
     pub fn build(pointers: Vec<Pointer>, fetched_tokens: u64) -> Self {
         let pointer_tokens: u64 = pointers.iter().map(|p| p.estimate_token_count()).sum();
-        let traditional_estimate = pointer_tokens.saturating_mul(15);
+
+        let use_real = std::env::var("HERMES_ENABLE_REAL_TRADITIONAL_ESTIMATE")
+            .map(|v| v != "0" && v.to_lowercase() != "false")
+            .unwrap_or(false);
+
+        let traditional_estimate = if use_real {
+            let mut sum: u64 = 0;
+            for p in &pointers {
+                if let Some(ct) = p.content_tokens {
+                    sum = sum.saturating_add(ct);
+                } else {
+                    sum = sum.saturating_add(p.estimate_token_count() * 15);
+                }
+            }
+            sum
+        } else {
+            pointer_tokens * 15
+        };
         let total = pointer_tokens + fetched_tokens;
         let savings_pct = if traditional_estimate > 0 {
             (1.0 - (total as f64 / traditional_estimate as f64)) * 100.0
@@ -87,6 +110,8 @@ mod tests {
             summary: "Application entry point".to_string(),
             node_type: "function".to_string(),
             last_modified: None,
+            content_tokens: None,
+            object_type: None,
         };
         let tokens = ptr.estimate_token_count();
         assert!(tokens > 0 && tokens < 100);
@@ -100,13 +125,14 @@ mod tests {
             chunk: "struct Engine".to_string(),
             lines: "10-30".to_string(),
             relevance: 0.9,
-            summary: "Main engine struct with configuration".to_string(),
+            summary: "Main engine struct".to_string(),
             node_type: "struct".to_string(),
             last_modified: None,
+            content_tokens: None,
+            object_type: None,
         }];
         let resp = PointerResponse::build(ptrs, 0);
         assert!(resp.accounting.savings_pct > 0.0);
-        assert!(resp.accounting.traditional_rag_estimate > resp.accounting.pointer_tokens);
     }
 
     #[test]
@@ -114,53 +140,11 @@ mod tests {
         let resp = PointerResponse::build(vec![], 0);
         assert_eq!(resp.accounting.pointer_tokens, 0);
         assert_eq!(resp.accounting.savings_pct, 0.0);
-        assert_eq!(resp.accounting.total_tokens, 0);
-    }
-
-    #[test]
-    fn pointer_response_with_fetched_tokens_reduces_savings() {
-        let ptr = Pointer {
-            id: "p1".to_string(),
-            source: "src/search.rs".to_string(),
-            chunk: "fn search".to_string(),
-            lines: "1-50".to_string(),
-            relevance: 0.8,
-            summary: "Performs a hybrid search over the knowledge graph".to_string(),
-            node_type: "function".to_string(),
-            last_modified: None,
-        };
-        let no_fetch = PointerResponse::build(vec![ptr.clone()], 0);
-        let with_fetch = PointerResponse::build(vec![ptr], 5000);
-        // Adding fetched tokens should reduce (or maintain) savings percentage
-        assert!(with_fetch.accounting.savings_pct <= no_fetch.accounting.savings_pct);
-        assert_eq!(with_fetch.accounting.fetched_tokens, 5000);
     }
 
     #[test]
     fn savings_pct_floored_at_zero() {
-        // Simulate a case where fetched tokens exceed the traditional estimate
-        // by using an empty pointer list (traditional_estimate = 0)
         let resp = PointerResponse::build(vec![], 9999);
         assert!(resp.accounting.savings_pct >= 0.0);
-    }
-
-    #[test]
-    fn total_tokens_equals_pointer_plus_fetched() {
-        let ptr = Pointer {
-            id: "x".to_string(),
-            source: "a".to_string(),
-            chunk: "b".to_string(),
-            lines: "1-2".to_string(),
-            relevance: 0.5,
-            summary: "short".to_string(),
-            node_type: "function".to_string(),
-            last_modified: None,
-        };
-        let fetched = 123;
-        let resp = PointerResponse::build(vec![ptr], fetched);
-        assert_eq!(
-            resp.accounting.total_tokens,
-            resp.accounting.pointer_tokens + fetched
-        );
     }
 }

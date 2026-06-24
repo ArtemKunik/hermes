@@ -11,6 +11,8 @@ pub struct Node {
     pub end_line: Option<i64>,
     pub summary: Option<String>,
     pub content_hash: Option<String>,
+    pub content_tokens: Option<u64>,
+    pub object_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -22,9 +24,10 @@ pub enum NodeType {
     Impl,
     Trait,
     Enum,
+    Interface,
     Concept,
     Document,
-    // hermes-mind personal knowledge types
+    Config,
     Message,
     Email,
     Contact,
@@ -40,8 +43,10 @@ impl NodeType {
             Self::Impl => "impl",
             Self::Trait => "trait",
             Self::Enum => "enum",
+            Self::Interface => "interface",
             Self::Concept => "concept",
             Self::Document => "document",
+            Self::Config => "config",
             Self::Message => "message",
             Self::Email => "email",
             Self::Contact => "contact",
@@ -57,8 +62,10 @@ impl NodeType {
             "impl" => Self::Impl,
             "trait" => Self::Trait,
             "enum" => Self::Enum,
+            "interface" => Self::Interface,
             "concept" => Self::Concept,
             "document" => Self::Document,
+            "config" => Self::Config,
             "message" => Self::Message,
             "email" => Self::Email,
             "contact" => Self::Contact,
@@ -85,6 +92,9 @@ pub enum EdgeType {
     DependsOn,
     Contains,
     Documents,
+    Defines,
+    Uses,
+    Tests,
 }
 
 impl EdgeType {
@@ -96,6 +106,9 @@ impl EdgeType {
             Self::DependsOn => "depends_on",
             Self::Contains => "contains",
             Self::Documents => "documents",
+            Self::Defines => "defines",
+            Self::Uses => "uses",
+            Self::Tests => "tests",
         }
     }
 
@@ -107,10 +120,14 @@ impl EdgeType {
             "depends_on" => Self::DependsOn,
             "contains" => Self::Contains,
             "documents" => Self::Documents,
+            "defines" => Self::Defines,
+            "uses" => Self::Uses,
+            "tests" => Self::Tests,
             _ => Self::DependsOn,
         }
     }
 }
+
 
 /// Data for one changed chunk, passed to [`KnowledgeGraph::ingest_file_batch`].
 pub struct ChunkWriteRecord {

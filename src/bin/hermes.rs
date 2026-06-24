@@ -6,7 +6,8 @@ use hermes_engine::{
     ingestion::IngestionPipeline,
     mcp_server,
     search::{SearchEngine, SearchMode},
-    temporal::{FactType, TemporalStore},
+    temporal::{TemporalStore},
+    temporal_types::{AddFactInput, FactType},
     HermesEngine,
 };
 use std::{env, path::PathBuf};
@@ -181,15 +182,31 @@ fn cmd_fetch(engine: &HermesEngine, node_id: &str) -> Result<()> {
 fn cmd_add_fact(engine: &HermesEngine, fact_type_str: &str, content: &str) -> Result<()> {
     let store = TemporalStore::new(engine.db().clone(), engine.project_id());
     let fact_type = FactType::parse_str(fact_type_str);
-    let id = store.add_fact(None, fact_type, content, None)?;
+    let id = store.add_fact(AddFactInput {
+        node_id: None,
+        fact_type,
+        content,
+        topic: None,
+        tags: vec![],
+        confidence: None,
+        ttl: None,
+        source_reference: None,
+        provenance: None,
+        repo_id: None,
+        agent_id: None,
+    })?;
     println!("{}", serde_json::json!({ "id": id, "status": "recorded" }));
     Ok(())
 }
 
 fn cmd_list_facts(engine: &HermesEngine, filter: Option<&str>) -> Result<()> {
     let store = TemporalStore::new(engine.db().clone(), engine.project_id());
-    let fact_type = filter.map(FactType::parse_str);
-    let facts = store.get_active_facts(fact_type.as_ref())?;
+    use hermes_engine::temporal_types::{FactFilter};
+    let filter_obj = FactFilter {
+        fact_type: filter.map(FactType::parse_str),
+        ..Default::default()
+    };
+    let facts = store.get_active_facts(&filter_obj)?;
     println!("{}", serde_json::to_string_pretty(&facts)?);
     Ok(())
 }

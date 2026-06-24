@@ -9,10 +9,13 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     add_config_registry_table(conn)?;
     ensure_config_registry_project_id(conn)?;
     add_vector_column(conn)?;
+    crate::schema_tables::add_weight_index(conn);
+    crate::schema_tables::create_memory_stats_table(conn);
+    crate::schema_tables::create_search_misses_table(conn);
+    crate::schema_tables::migrate_temporal_facts_extended(conn);
+    crate::schema_tables::add_accounting_memory_hits(conn);
     Ok(())
 }
-
-/// Idempotent: creates the config_registry table for env var tracking.
 fn add_config_registry_table(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS config_registry (
@@ -89,6 +92,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     end_line    INTEGER,
     summary     TEXT,
     content_hash TEXT,
+    content_tokens INTEGER,
+    object_type TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -162,6 +167,7 @@ CREATE TABLE IF NOT EXISTS accounting (
     pointer_tokens  INTEGER NOT NULL DEFAULT 0,
     fetched_tokens  INTEGER NOT NULL DEFAULT 0,
     traditional_est INTEGER NOT NULL DEFAULT 0,
+    memory_hits     INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_accounting_session ON accounting(project_id, session_id);

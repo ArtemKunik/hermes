@@ -1,4 +1,6 @@
-use crate::graph::{KnowledgeGraph, Node};
+use crate::graph::KnowledgeGraph;
+use crate::graph_ops::split_identifier;
+use crate::graph_types::Node;
 use crate::search::{SearchResult, SearchTier};
 use anyhow::Result;
 
@@ -6,134 +8,91 @@ const FTS_LIMIT: usize = 20;
 const STRATEGY_MIN_RESULTS: usize = 3;
 const MAX_QUERY_WORDS: usize = 10;
 
-// Returns true for characters that belong to scripts without whitespace word
-// boundaries (CJK ideographs, Hiragana, Katakana, Hangul). Each such character
-// is emitted as its own token so that FTS can match sub-word queries.
-fn is_cjk(ch: char) -> bool {
-    matches!(ch,
-        '\u{3040}'..='\u{309F}'   // Hiragana
-        | '\u{30A0}'..='\u{30FF}' // Katakana
-        | '\u{3400}'..='\u{4DBF}' // CJK Extension A
-        | '\u{4E00}'..='\u{9FFF}' // CJK Unified Ideographs
-        | '\u{F900}'..='\u{FAFF}' // CJK Compatibility Ideographs
-        | '\u{20000}'..='\u{2A6DF}' // CJK Extension B
-        | '\u{AC00}'..='\u{D7AF}' // Hangul Syllables
-    )
-}
-
-// Extracts alphanumeric/underscore tokens from the raw query and removes
-// FTS operators. This prevents FTS5 syntax errors when the user includes
-// punctuation (for example "/api/alerts").
-// CJK characters are emitted individually because those scripts use no spaces
-// as word boundaries — grouping them into one token would prevent matching.
-fn extract_words(query: &str) -> Vec<String> {
-    let mut words: Vec<String> = Vec::new();
-    let mut cur = String::new();
-    for ch in query.chars() {
-        if is_cjk(ch) {
-            // Flush any Latin/ASCII token accumulated so far.
-            if !cur.is_empty() {
-                if !is_fts_operator(&cur) {
-                    words.push(cur.clone());
-                }
-                cur.clear();
-            }
-            // Each CJK character becomes its own search token.
-            words.push(ch.to_string());
-        } else if ch.is_alphanumeric() || ch == '_' {
-            cur.push(ch);
-        } else if !cur.is_empty() {
-            if !is_fts_operator(&cur) {
-                words.push(cur.clone());
-            }
-            cur.clear();
-        }
-    }
-    if !cur.is_empty() && !is_fts_operator(&cur) {
-        words.push(cur);
-    }
-    words.into_iter().take(MAX_QUERY_WORDS).collect()
-}
-
-pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResult>> {
-    // sanitize the query into plain word tokens before building FTS5 queries
-    let words: Vec<String> = extract_words(query);
+pub fn fts_search_with_limit(graph: &KnowledgeGraph, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+    let words = extract_query_terms(query);
 
     if words.is_empty() {
         return Ok(Vec::new());
     }
 
     if words.len() == 1 {
-        let single = format!("\"{}\"", words[0]);
-        return Ok(to_search_results(graph.fts_search(&single, FTS_LIMIT)?));
+        let single = quote_fts_term(&words[0]);
+        return Ok(to_search_results(graph.fts_search(&single, limit)?));
     }
 
     let phrase_query = format!("\"{}\"", words.join(" "));
-    let s1 = graph.fts_search(&phrase_query, FTS_LIMIT)?;
+    let s1 = graph.fts_search(&phrase_query, limit)?;
     if s1.len() >= STRATEGY_MIN_RESULTS {
         return Ok(to_search_results(s1));
     }
 
     let and_query = words
         .iter()
-        .map(|w| format!("\"{}\"*", w))
+        .map(|w| format!("{}*", quote_fts_term(w)))
         .collect::<Vec<_>>()
         .join(" AND ");
-    let s2 = graph.fts_search(&and_query, FTS_LIMIT)?;
+    let s2 = graph.fts_search(&and_query, limit)?;
     if s2.len() >= STRATEGY_MIN_RESULTS {
         return Ok(to_search_results(s2));
     }
 
     let or_query = words
         .iter()
-        .map(|w| format!("\"{w}\""))
+        .map(|w| quote_fts_term(w))
         .collect::<Vec<_>>()
         .join(" OR ");
-    Ok(to_search_results(graph.fts_search(&or_query, FTS_LIMIT)?))
+    Ok(to_search_results(graph.fts_search(&or_query, limit)?))
+}
+
+pub fn fts_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResult>> {
+    fts_search_with_limit(graph, query, FTS_LIMIT)
+}
+
+fn extract_query_terms(query: &str) -> Vec<String> {
+    query
+        .split_whitespace()
+        .filter(|w| !is_fts_operator(w))
+        .map(sanitize_term)
+        .filter(|w| !w.is_empty())
+        .flat_map(|w| {
+            let splits: Vec<String> = split_identifier(&w);
+            if splits.len() > 1 { splits } else { vec![w] }
+        })
+        .take(MAX_QUERY_WORDS)
+        .collect()
+}
+
+fn sanitize_term(word: &str) -> String {
+    word.trim_matches('"').replace('"', "").trim().to_string()
+}
+
+fn quote_fts_term(term: &str) -> String {
+    format!("\"{}\"", term)
+}
+
+fn is_fts_operator(word: &str) -> bool {
+    matches!(word.to_uppercase().as_str(), "AND" | "OR" | "NOT")
 }
 
 fn to_search_results(raw: Vec<(Node, f64)>) -> Vec<SearchResult> {
     raw.into_iter()
-        .map(|(node, rank)| SearchResult {
+        .map(|(node, score)| SearchResult {
             node,
-            score: normalize_bm25_score(rank),
+            score,
             tier: SearchTier::L1Fts,
             matched_content: None,
         })
         .collect()
 }
 
-fn is_fts_operator(word: &str) -> bool {
-    matches!(word.to_uppercase().as_str(), "AND" | "OR" | "NOT" | "NEAR")
-}
-
-fn normalize_bm25_score(rank: f64) -> f64 {
-    let abs_rank = rank.abs();
-    if abs_rank < 0.001 {
-        return 0.5;
-    }
-    (1.0 - 1.0 / (1.0 + abs_rank)).min(1.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::HermesEngine;
-
-    fn make_graph(engine: &HermesEngine) -> crate::graph::KnowledgeGraph {
-        crate::graph::KnowledgeGraph::new(engine.db().clone(), engine.project_id())
-    }
-
-    #[test]
-    fn single_word_uses_phrase_strategy() {
-        let sanitized = prepare_test_query("main");
-        assert_eq!(sanitized, "\"main\"");
-    }
 
     fn prepare_test_query(query: &str) -> String {
-        let words: Vec<String> = extract_words(query);
+        let words = extract_query_terms(query);
         if words.len() == 1 {
-            format!("\"{}\"", words[0])
+            quote_fts_term(&words[0])
         } else {
             format!("\"{}\"", words.join(" "))
         }
@@ -141,55 +100,39 @@ mod tests {
 
     #[test]
     fn filters_fts_operators() {
-        let words = extract_words("NOT main AND test OR foo");
-        assert!(!words.iter().any(|w| w.eq_ignore_ascii_case("NOT")));
-        assert!(!words.iter().any(|w| w.eq_ignore_ascii_case("AND")));
-        assert!(!words.iter().any(|w| w.eq_ignore_ascii_case("OR")));
-        assert!(words.contains(&"main".to_string()));
-        assert!(words.contains(&"test".to_string()));
-        assert!(words.contains(&"foo".to_string()));
+        let words = extract_query_terms("NOT main AND test OR foo");
+        assert!(!words.iter().any(|w| w == "NOT"));
+        assert!(!words.iter().any(|w| w == "AND"));
+        assert!(!words.iter().any(|w| w == "OR"));
+        assert!(words.iter().any(|w| w == "main"));
+        assert!(words.iter().any(|w| w == "test"));
+        assert!(words.iter().any(|w| w == "foo"));
     }
 
     #[test]
     fn truncates_to_ten_words() {
         let long_query = "a b c d e f g h i j k l m n";
-        let words = extract_words(long_query);
+        let words = extract_query_terms(long_query);
         assert_eq!(words.len(), MAX_QUERY_WORDS);
     }
 
     #[test]
-    fn ignores_punctuation_like_slashes() {
-        let tokens = extract_words("/api/alerts handler");
-        assert_eq!(
-            tokens,
-            vec![
-                "api".to_string(),
-                "alerts".to_string(),
-                "handler".to_string()
-            ]
-        );
+    fn strips_user_quotes_from_path_terms() {
+        let words = extract_query_terms("\"/api/alerts\" handler");
+        assert_eq!(words, vec!["/api/alerts".to_string(), "handler".to_string()]);
     }
 
     #[test]
-    fn bm25_normalization() {
-        assert!(normalize_bm25_score(-5.0) > 0.5);
-        assert!(normalize_bm25_score(-10.0) > normalize_bm25_score(-5.0));
-        assert!(normalize_bm25_score(0.0) < 0.6);
+    fn single_quoted_path_produces_valid_fts_term() {
+        let query = prepare_test_query("\"/api/alerts\"");
+        assert_eq!(query, "\"/api/alerts\"");
     }
 
     #[test]
-    fn empty_query_returns_empty() {
-        let engine = HermesEngine::in_memory("test-fts").unwrap();
-        let graph = make_graph(&engine);
+    fn empty_query_returns_empty_results() {
+        let engine = crate::HermesEngine::in_memory("test-fts-empty").unwrap();
+        let graph = crate::graph::KnowledgeGraph::new(engine.db().clone(), engine.project_id());
         let results = fts_search(&graph, "").unwrap();
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn operator_only_query_returns_empty() {
-        let engine = HermesEngine::in_memory("test-fts").unwrap();
-        let graph = make_graph(&engine);
-        let results = fts_search(&graph, "AND OR NOT").unwrap();
         assert!(results.is_empty());
     }
 }

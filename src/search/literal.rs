@@ -3,14 +3,19 @@ use crate::search::{SearchResult, SearchTier};
 use anyhow::Result;
 
 pub fn literal_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchResult>> {
-    let query_lower = query.to_lowercase();
     let nodes = graph.literal_search_by_name(query)?;
-
-    let mut results: Vec<SearchResult> = nodes
+    Ok(nodes
         .into_iter()
         .map(|node| {
             let name_lower = node.name.to_lowercase();
-            let score = compute_literal_score(&query_lower, &name_lower);
+            let query_lower = query.to_lowercase();
+            let score = if name_lower == query_lower {
+                1.0
+            } else if name_lower.starts_with(&query_lower) {
+                0.9
+            } else {
+                0.7
+            };
             SearchResult {
                 node,
                 score,
@@ -18,27 +23,7 @@ pub fn literal_search(graph: &KnowledgeGraph, query: &str) -> Result<Vec<SearchR
                 matched_content: None,
             }
         })
-        .collect();
-
-    results.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    results.truncate(20);
-    Ok(results)
-}
-
-fn compute_literal_score(query: &str, name: &str) -> f64 {
-    if name == query {
-        return 1.0;
-    }
-    if name.starts_with(query) || name.ends_with(query) {
-        return 0.9;
-    }
-    let query_len = query.len() as f64;
-    let name_len = name.len().max(1) as f64;
-    0.5 + (query_len / name_len) * 0.4
+        .collect())
 }
 
 #[cfg(test)]
@@ -46,19 +31,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exact_match_scores_highest() {
-        assert_eq!(compute_literal_score("main", "main"), 1.0);
+    fn empty_graph_returns_empty() {
+        let engine = crate::HermesEngine::in_memory("test-lit-empty").unwrap();
+        let graph = crate::graph::KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+        let results = literal_search(&graph, "anything").unwrap();
+        assert!(results.is_empty());
     }
 
     #[test]
-    fn prefix_match_scores_high() {
-        let score = compute_literal_score("fetch", "fetch_exchange_rate");
-        assert!(score >= 0.8);
-    }
-
-    #[test]
-    fn partial_match_scores_moderate() {
-        let score = compute_literal_score("rate", "exchange_rate_service");
-        assert!(score > 0.5 && score < 0.9);
+    fn literal_search_uses_sql_index() {
+        let engine = crate::HermesEngine::in_memory("test-lit").unwrap();
+        let graph = crate::graph::KnowledgeGraph::new(engine.db().clone(), engine.project_id());
+        graph
+            .add_node(&crate::graph_types::Node {
+                id: "n1".to_string(),
+                project_id: engine.project_id().to_string(),
+                name: "fetch_exchange_rate".to_string(),
+                node_type: crate::graph_types::NodeType::Function,
+                file_path: None,
+                start_line: None,
+                end_line: None,
+                summary: None,
+                content_hash: None,
+                content_tokens: None,
+                object_type: None,
+            })
+            .unwrap();
+        let results = literal_search(&graph, "fetch_exchange_rate").unwrap();
+        assert_eq!(results.len(), 1);
+        assert!((results[0].score - 1.0).abs() < f64::EPSILON);
     }
 }

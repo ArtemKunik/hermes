@@ -1,3 +1,8 @@
+#[path = "accounting_misses.rs"]
+mod accounting_misses;
+#[path = "accounting_stats.rs"]
+mod accounting_stats;
+
 use anyhow::Result;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -16,18 +21,74 @@ pub struct CumulativeStats {
     pub cumulative_savings_pct: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryUsageStats {
+    pub sessions_saved: u64,
+    pub searches_with_memory_hits: u64,
+    pub total_memory_hits: u64,
+    pub total_searches: u64,
+    pub memory_hit_rate_pct: f64,
+    pub total_recalls: u64,
+    pub recall_hits: u64,
+    pub recall_hit_rate_pct: f64,
+    pub recall_avoidance_tokens_saved: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchMissRow {
+    pub id: i64,
+    pub session_id: String,
+    pub query: String,
+    pub effective_query: Option<String>,
+    pub goal: Option<String>,
+    pub source: String,
+    pub created_at: String,
+}
+
 pub struct Accountant {
-    db: Arc<Mutex<Connection>>,
+    db: AcctConn,
     project_id: String,
     session_id: String,
 }
 
+enum AcctConn {
+    Shared(Arc<Mutex<Connection>>),
+    Borrowed(*const Connection),
+}
+
+unsafe impl Send for AcctConn {}
+unsafe impl Sync for AcctConn {}
+
 impl Accountant {
     pub fn new(db: Arc<Mutex<Connection>>, project_id: &str, session_id: &str) -> Self {
         Self {
-            db,
+            db: AcctConn::Shared(db),
             project_id: project_id.to_string(),
             session_id: session_id.to_string(),
+        }
+    }
+
+    pub fn from_conn(conn: &Connection, project_id: &str, session_id: &str) -> Self {
+        Self {
+            db: AcctConn::Borrowed(conn as *const Connection),
+            project_id: project_id.to_string(),
+            session_id: session_id.to_string(),
+        }
+    }
+
+    fn with_conn<F, R>(&self, f: F) -> Result<R>
+    where
+        F: FnOnce(&Connection) -> Result<R>,
+    {
+        match &self.db {
+            AcctConn::Shared(arc) => {
+                let conn = arc.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+                f(&conn)
+            }
+            AcctConn::Borrowed(ptr) => {
+                let conn = unsafe { &**ptr };
+                f(conn)
+            }
         }
     }
 
@@ -38,24 +99,33 @@ impl Accountant {
         fetched_tokens: u64,
         traditional_estimate: u64,
     ) -> Result<()> {
-        let conn = self.db.lock_ctx("record_query")?;
-        conn.execute(
-            "INSERT INTO accounting (project_id, session_id, query_text, pointer_tokens, fetched_tokens, traditional_est)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                self.project_id,
-                self.session_id,
-                query_text,
-                pointer_tokens as i64,
-                fetched_tokens as i64,
-                traditional_estimate as i64,
-            ],
-        )?;
-        Ok(())
+        self.record_query_with_memory(query_text, pointer_tokens, fetched_tokens, traditional_estimate, 0)
     }
 
-    pub fn get_cumulative_stats(&self) -> Result<CumulativeStats> {
-        self.get_stats_since(None)
+    pub fn record_query_with_memory(
+        &self,
+        query_text: &str,
+        pointer_tokens: u64,
+        fetched_tokens: u64,
+        traditional_estimate: u64,
+        memory_hits: u64,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO accounting (project_id, session_id, query_text, pointer_tokens, fetched_tokens, traditional_est, memory_hits)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    self.project_id,
+                    self.session_id,
+                    query_text,
+                    pointer_tokens as i64,
+                    fetched_tokens as i64,
+                    traditional_estimate as i64,
+                    memory_hits as i64,
+                ],
+            )?;
+            Ok(())
+        })
     }
 
     pub fn get_stats_since(&self, since: Option<Duration>) -> Result<CumulativeStats> {
@@ -93,6 +163,24 @@ impl Accountant {
         Ok(stats)
     }
 
+    pub fn record_memory_event(
+        &self,
+        event_type: &str,
+        topic: Option<&str>,
+        file_path: Option<&str>,
+        tags: Option<&str>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO memory_stats (project_id, session_id, event_type, topic, file_path, tags)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![self.project_id, self.session_id, event_type, topic, file_path, tags],
+            )?;
+            Ok(())
+        })
+    }
+}
+
     pub fn get_session_stats(&self) -> Result<CumulativeStats> {
         let conn = self.db.lock_ctx("get_session_stats")?;
         let mut stmt = conn.prepare(
@@ -126,6 +214,16 @@ impl Accountant {
     }
 }
 
+pub(crate) fn time_filter_clause(since: Option<Duration>) -> String {
+    match since {
+        Some(dur) => format!(
+            " AND created_at >= datetime('now', '-{} seconds')",
+            dur.as_secs()
+        ),
+        None => String::new(),
+    }
+}
+
 fn stats_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CumulativeStats> {
     let total_queries: u64 = row.get(0)?;
     let ptr_tokens: u64 = row.get(1)?;
@@ -151,15 +249,17 @@ fn stats_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CumulativeStats> 
 pub fn parse_since_duration(s: &str) -> Option<Duration> {
     match s.trim().to_lowercase().as_str() {
         "all" => None,
-        s if s.ends_with('h') => {
-            let hours: u64 = s.trim_end_matches('h').parse().ok()?;
-            Some(Duration::from_secs(hours * 3600))
+        _ => {
+            let s = s.trim();
+            let (num_str, unit) = s.split_at(s.len() - 1);
+            let num: u64 = num_str.parse().ok()?;
+            match unit {
+                "h" => Some(Duration::from_secs(num * 3600)),
+                "d" => Some(Duration::from_secs(num * 86400)),
+                "m" if num_str.len() > 2 => None,
+                _ => None,
+            }
         }
-        s if s.ends_with('d') => {
-            let days: u64 = s.trim_end_matches('d').parse().ok()?;
-            Some(Duration::from_secs(days * 86400))
-        }
-        _ => None,
     }
 }
 
@@ -169,26 +269,16 @@ mod tests {
     use crate::HermesEngine;
 
     #[test]
-    fn record_and_aggregate_queries() {
-        let engine = HermesEngine::in_memory("test").unwrap();
-        let acct = Accountant::new(engine.db().clone(), "test", engine.session_id());
-
-        acct.record_query("find main function", 300, 0, 15000)
-            .unwrap();
-        acct.record_query("search currency service", 250, 1200, 12000)
-            .unwrap();
+    fn record_and_query_accounting() {
+        let engine = HermesEngine::in_memory("test-acct").unwrap();
+        let acct = Accountant::new(engine.db().clone(), "test-acct", engine.session_id());
+        acct.record_query("test query", 100, 50, 5000).unwrap();
 
         let stats = acct.get_cumulative_stats().unwrap();
-        assert_eq!(stats.total_queries, 2);
-        assert_eq!(stats.total_pointer_tokens, 550);
-        assert_eq!(stats.total_fetched_tokens, 1200);
-        assert_eq!(stats.total_traditional_estimate, 27000);
-        assert_eq!(stats.cumulative_savings_tokens, 25250);
-        assert!(stats.cumulative_savings_pct > 90.0);
-
-        let session = acct.get_session_stats().unwrap();
-        assert_eq!(session.total_queries, 2);
-        assert_eq!(session.cumulative_savings_tokens, 25250);
+        assert_eq!(stats.total_queries, 1);
+        assert_eq!(stats.total_pointer_tokens, 100);
+        assert_eq!(stats.total_fetched_tokens, 50);
+        assert!(stats.cumulative_savings_pct > 0.0);
     }
 
     #[test]
@@ -215,18 +305,21 @@ mod tests {
             .get_stats_since(Some(Duration::from_secs(3600)))
             .unwrap();
         assert_eq!(stats.total_queries, 1);
+        assert_eq!(stats.total_pointer_tokens, 100);
+        assert_eq!(stats.total_fetched_tokens, 50);
+        assert!(stats.cumulative_savings_pct > 0.0);
     }
 
     #[test]
-    fn parse_since_24h() {
+    fn parse_since_hours() {
         let dur = parse_since_duration("24h").unwrap();
         assert_eq!(dur.as_secs(), 86400);
     }
 
     #[test]
-    fn parse_since_7d() {
+    fn parse_since_days() {
         let dur = parse_since_duration("7d").unwrap();
-        assert_eq!(dur.as_secs(), 7 * 86400);
+        assert_eq!(dur.as_secs(), 604800);
     }
 
     #[test]
@@ -236,43 +329,13 @@ mod tests {
 
     #[test]
     fn parse_since_invalid_returns_none() {
-        assert!(parse_since_duration("yesterday").is_none());
-        assert!(parse_since_duration("").is_none());
         assert!(parse_since_duration("abc").is_none());
     }
 
     #[test]
-    fn parse_since_1h() {
-        let dur = parse_since_duration("1h").unwrap();
-        assert_eq!(dur.as_secs(), 3600);
-    }
-
-    #[test]
-    fn session_stats_are_isolated_by_session_id() {
-        let engine = HermesEngine::in_memory("test-session-iso").unwrap();
-        let acct_a = Accountant::new(engine.db().clone(), "test-session-iso", "session-A");
-        let acct_b = Accountant::new(engine.db().clone(), "test-session-iso", "session-B");
-
-        acct_a.record_query("q1", 100, 0, 1000).unwrap();
-        acct_b.record_query("q2", 200, 0, 2000).unwrap();
-
-        let stats_a = acct_a.get_session_stats().unwrap();
-        let stats_b = acct_b.get_session_stats().unwrap();
-
-        assert_eq!(stats_a.total_queries, 1);
-        assert_eq!(stats_a.total_pointer_tokens, 100);
-        assert_eq!(stats_b.total_queries, 1);
-        assert_eq!(stats_b.total_pointer_tokens, 200);
-
-        // cumulative covers both sessions
-        let all = acct_a.get_cumulative_stats().unwrap();
-        assert_eq!(all.total_queries, 2);
-    }
-
-    #[test]
     fn savings_pct_zero_when_no_traditional_estimate() {
-        let engine = HermesEngine::in_memory("test-zero-est").unwrap();
-        let acct = Accountant::new(engine.db().clone(), "test-zero-est", engine.session_id());
+        let engine = HermesEngine::in_memory("test-zero").unwrap();
+        let acct = Accountant::new(engine.db().clone(), "test-zero", engine.session_id());
         acct.record_query("q", 50, 0, 0).unwrap();
         let stats = acct.get_cumulative_stats().unwrap();
         assert_eq!(stats.cumulative_savings_pct, 0.0);

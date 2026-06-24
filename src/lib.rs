@@ -3,7 +3,10 @@ pub(crate) mod engine_cache;
 pub mod embedding;
 pub mod graph;
 pub mod graph_builders;
+pub mod graph_ops;
 pub mod graph_queries;
+pub mod graph_support;
+pub mod graph_types;
 pub mod ingestion;
 pub(crate) mod lock_ext;
 pub mod mcp_server;
@@ -13,9 +16,13 @@ pub mod mcp_tools_validation;
 pub mod neural_embed;
 pub mod pointer;
 pub mod schema;
+pub mod schema_tables;
 pub mod search;
 pub mod temporal;
 pub mod vector_ops;
+pub mod temporal_query;
+pub mod temporal_types;
+pub mod weight;
 
 use crate::pointer::PointerResponse;
 use anyhow::Result;
@@ -88,10 +95,6 @@ impl HermesEngine {
     }
 }
 
-/// Returns today's local date as a session identifier (e.g. "2026-02-20").
-/// Using the date instead of a fresh UUID means a session persists across
-/// VS Code / MCP server restarts within the same calendar day and resets
-/// naturally at midnight.
 fn today_session_id() -> String {
     Local::now().format("%Y-%m-%d").to_string()
 }

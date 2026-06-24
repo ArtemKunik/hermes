@@ -30,7 +30,7 @@ impl KnowledgeGraph {
             format!("%{query_lower}%")
         };
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash
+            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type
              FROM nodes
              WHERE project_id = ?1 AND LOWER(name) LIKE ?2
              ORDER BY LENGTH(name), name
@@ -44,10 +44,8 @@ impl KnowledgeGraph {
 
     fn literal_search_unicode_fallback(&self, query_lower: &str) -> Result<Vec<Node>> {
         let conn = self.db().lock_ctx("graph_queries")?;
-        // Use Rust's Unicode-aware to_lowercase() rather than SQLite's LOWER()
-        // which only folds ASCII letters (é, ü, Cyrillic, etc. are left as-is).
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash
+            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type
              FROM nodes WHERE project_id = ?1",
         )?;
         let all_nodes: Vec<Node> = stmt
@@ -105,7 +103,7 @@ impl KnowledgeGraph {
     pub fn get_all_nodes(&self) -> Result<Vec<Node>> {
         let conn = self.db().lock_ctx("graph_queries")?;
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash
+            "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_hash, content_tokens, object_type
              FROM nodes WHERE project_id = ?1",
         )?;
         let rows = stmt
@@ -117,7 +115,7 @@ impl KnowledgeGraph {
     pub fn fts_search(&self, query: &str, limit: usize) -> Result<Vec<(Node, f64)>> {
         let conn = self.db().lock_ctx("graph_queries")?;
         let mut stmt = conn.prepare(
-            "SELECT n.id, n.project_id, n.name, n.node_type, n.file_path, n.start_line, n.end_line, n.summary, n.content_hash,
+            "SELECT n.id, n.project_id, n.name, n.node_type, n.file_path, n.start_line, n.end_line, n.summary, n.content_hash, n.content_tokens, n.object_type,
                     bm25(fts_content) as rank
              FROM fts_content f
              JOIN nodes n ON n.id = f.node_id
@@ -127,7 +125,7 @@ impl KnowledgeGraph {
         )?;
         let rows = stmt
             .query_map(params![query, self.project_id(), limit as i64], |row| {
-                Ok((node_from_row(row)?, row.get::<_, f64>(9)?))
+                Ok((node_from_row(row)?, row.get::<_, f64>(11)?))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
@@ -135,8 +133,94 @@ impl KnowledgeGraph {
 }
 
 #[cfg(test)]
-#[path = "graph_queries_tests.rs"]
-mod tests;
+mod tests {
+    use crate::{
+        graph::{Edge, EdgeType, KnowledgeGraph, Node, NodeType},
+        HermesEngine,
+    };
+
+    fn make_graph(engine: &HermesEngine) -> KnowledgeGraph {
+        KnowledgeGraph::new(engine.db().clone(), engine.project_id())
+    }
+
+    fn insert_node(graph: &KnowledgeGraph, id: &str, name: &str, file_path: &str) -> Node {
+        let node = Node {
+            id: id.to_string(),
+            project_id: graph.project_id().to_string(),
+            name: name.to_string(),
+            node_type: NodeType::Function,
+            file_path: Some(file_path.to_string()),
+            start_line: Some(1),
+            end_line: Some(10),
+            summary: None,
+            content_hash: None,
+            content_tokens: None,
+            object_type: None,
+        };
+        graph.add_node(&node).unwrap();
+        node
+    }
+
+    #[test]
+    fn get_all_file_paths_only_returns_file_type_nodes() {
+        let engine = HermesEngine::in_memory("gq-filepaths").unwrap();
+        let graph = make_graph(&engine);
+
+        let file_node = Node {
+            id: "file-1".to_string(),
+            project_id: graph.project_id().to_string(),
+            name: "src/main.rs".to_string(),
+            node_type: NodeType::File,
+            file_path: Some("src/main.rs".to_string()),
+            start_line: None,
+            end_line: None,
+            summary: None,
+            content_hash: None,
+            content_tokens: None,
+            object_type: None,
+        };
+        graph.add_node(&file_node).unwrap();
+        insert_node(&graph, "fn-1", "some_fn", "src/main.rs");
+
+        let paths = graph.get_all_file_paths().unwrap();
+        assert_eq!(paths.len(), 1);
+        assert!(paths.contains("src/main.rs"));
+    }
+
+    #[test]
+    fn delete_nodes_for_file_removes_correct_nodes() {
+        let engine = HermesEngine::in_memory("gq-delete").unwrap();
+        let graph = make_graph(&engine);
+        insert_node(&graph, "n1", "fn_a", "src/a.rs");
+        insert_node(&graph, "n2", "fn_b", "src/b.rs");
+        graph.delete_nodes_for_file("src/a.rs").unwrap();
+
+        let all = graph.get_all_nodes().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].name, "fn_b");
+    }
+
+    #[test]
+    fn delete_nodes_removes_associated_edges() {
+        let engine = HermesEngine::in_memory("gq-delete-edges").unwrap();
+        let graph = make_graph(&engine);
+        let n1 = insert_node(&graph, "n1", "fn_a", "src/a.rs");
+        let n2 = insert_node(&graph, "n2", "fn_b", "src/b.rs");
+
+        graph.add_edge(&Edge {
+            id: "e1".to_string(),
+            project_id: graph.project_id().to_string(),
+            source_id: n1.id.clone(),
+            target_id: n2.id.clone(),
+            edge_type: EdgeType::Calls,
+            weight: 1.0,
+        }).unwrap();
+
+        graph.delete_nodes_for_file("src/a.rs").unwrap();
+        let neighbors = graph.get_neighbors("n2").unwrap();
+        assert!(neighbors.is_empty());
+    }
+}
 
 pub(crate) fn node_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
     Ok(Node {
@@ -149,5 +233,7 @@ pub(crate) fn node_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Node> {
         end_line: row.get(6)?,
         summary: row.get(7)?,
         content_hash: row.get(8)?,
+        content_tokens: row.get::<_, Option<i64>>(9)?.map(|v| v as u64),
+        object_type: row.get(10)?,
     })
 }
