@@ -212,8 +212,7 @@ pub(crate) fn create_blast_scores_table(conn: &Connection) {
             risk_level       TEXT NOT NULL DEFAULT 'LOW',
             computed_at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_blast_project ON blast_scores(project_id);
-        CREATE INDEX IF NOT EXISTS idx_blast_score_desc ON blast_scores(blast_score DESC);
+        CREATE INDEX IF NOT EXISTS idx_blast_project_score ON blast_scores(project_id, blast_score DESC);
         CREATE INDEX IF NOT EXISTS idx_blast_file ON blast_scores(file_path);",
     );
 }
