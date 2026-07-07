@@ -87,6 +87,7 @@ static READ_ONLY_TOOLS: LazyLock<std::collections::HashSet<&'static str>> = Lazy
         "hermes_lookup",
         "hermes_file_symbols",
         "hermes_proposal_list",
+        "hermes_validate_commit_context",
     ]
     .into_iter()
     .collect()
@@ -377,6 +378,15 @@ fn register_commit_inner(map: &mut HashMap<&'static str, ToolHandler>) {
     reg(map, "hermes_prepare_commit_message", |_, args| {
         crate::mcp_commit::tool_prepare_commit_message(args)
     });
+
+    reg(map, "hermes_validate_commit_context", |_, args| {
+        let message = args["message"].as_str().unwrap_or("");
+        anyhow::ensure!(
+            !message.is_empty(),
+            "hermes_validate_commit_context requires 'message'"
+        );
+        crate::mcp_commit::tool_validate_commit_context(message)
+    });
 }
 
 /// Tools from `mcp_tools_consistency` module.
@@ -629,6 +639,6 @@ mod tests {
     #[test]
     fn registry_has_expected_count() {
         let handlers = TOOL_REGISTRY.lock().unwrap();
-        assert_eq!(handlers.len(), 63, "expected 63 tools in registry");
+        assert_eq!(handlers.len(), 69, "expected 69 tools in registry");
     }
 }

@@ -230,9 +230,120 @@ fn maybe_push(ids: &mut Vec<u32>, path: &str, prefix: &str, pipeline_id: u32) {
     }
 }
 
+pub fn tool_validate_commit_context(message: &str) -> Result<String> {
+    let all_trailers = [
+        "Task-Model",
+        "Decision-Doc",
+        "Session-Note",
+        "Docs",
+        "Pipeline",
+    ];
+
+    // First pass: collect what's present
+    let present: Vec<String> = all_trailers
+        .iter()
+        .filter(|t| message.contains(&format!("{t}:")))
+        .map(|t| t.to_string())
+        .collect();
+
+    let mut errors: Vec<String> = Vec::new();
+
+    // Subject line check
+    let first_line = message.lines().next().unwrap_or("");
+    if first_line.len() > 72 {
+        errors.push("Subject line exceeds 72 characters".to_string());
+    }
+
+    // Second pass: determine what's missing, allowing Decision-Doc <-> Session-Note alternative
+    let has_decision_or_session = present.iter().any(|t| t == "Decision-Doc" || t == "Session-Note");
+    let mut missing: Vec<String> = Vec::new();
+
+    for trailer in &all_trailers {
+        if present.contains(&trailer.to_string()) {
+            continue;
+        }
+        match *trailer {
+            "Decision-Doc" | "Session-Note" => {
+                if !has_decision_or_session {
+                    missing.push(trailer.to_string());
+                }
+            }
+            _ => {
+                missing.push(trailer.to_string());
+            }
+        }
+    }
+
+    let valid = missing.is_empty() && errors.is_empty();
+
+    let result = serde_json::json!({
+        "valid": valid,
+        "present": present,
+        "missing": missing,
+        "errors": errors,
+    });
+
+    Ok(serde_json::to_string_pretty(&result)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_valid_message() {
+        let msg = "feat: add widget\n\nTask-Model: task://abc\nDecision-Doc: docs/x.md\nDocs: docs/api.md\nPipeline: 18\n";
+        let result = tool_validate_commit_context(msg).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(v["valid"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_validate_missing_trailers() {
+        let msg = "feat: add widget\n\nTask-Model: task://abc\n";
+        let result = tool_validate_commit_context(msg).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(!v["valid"].as_bool().unwrap());
+        let missing: Vec<&str> = v["missing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m.as_str())
+            .collect();
+        assert!(missing.contains(&"Docs"));
+        assert!(missing.contains(&"Pipeline"));
+    }
+
+    #[test]
+    fn test_validate_decision_or_session_is_enough() {
+        // Decision-Doc without Session-Note should be valid
+        let msg = "fix: resolve crash\n\nTask-Model: task://x\nDecision-Doc: docs/crash.md\nDocs: changelog.md\nPipeline: 9\n";
+        let result = tool_validate_commit_context(msg).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(v["valid"].as_bool().unwrap());
+
+        // Session-Note without Decision-Doc should also be valid
+        let msg2 = "fix: resolve crash\n\nTask-Model: task://x\nSession-Note: memory/sessions/foo.md\nDocs: changelog.md\nPipeline: 9\n";
+        let result2 = tool_validate_commit_context(msg2).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&result2).unwrap();
+        assert!(v2["valid"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_validate_requires_both_task_model_and_pipeline() {
+        let msg = "chore: update deps\n\nDocs: readme.md\n";
+        let result = tool_validate_commit_context(msg).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert!(!v["valid"].as_bool().unwrap());
+        let missing: Vec<&str> = v["missing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m.as_str())
+            .collect();
+        assert!(missing.contains(&"Task-Model"));
+        assert!(missing.contains(&"Pipeline"));
+    }
 
     #[test]
     fn test_infer_pipeline_ids_ccterm() {

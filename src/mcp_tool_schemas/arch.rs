@@ -121,6 +121,17 @@ pub fn tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "hermes_validate_commit_context",
+            "description": "Validate a commit message has the required structured trailers (Task-Model, Decision-Doc/Session-Note, Docs, Pipeline) for CI/pre-commit enforcement. Returns present/missing/errors.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "message": { "type": "string", "description": "Full commit message text to validate" }
+                },
+                "required": ["message"]
+            }
+        }),
+        json!({
             "name": "hermes_repo_map",
             "description": "Generate a token-budget-constrained repository map. Returns a compact listing of all code symbols (functions, structs, traits, enums) ranked by reference count (xref edges). Use to give the LLM a global architecture overview without reading entire files.",
             "inputSchema": {
