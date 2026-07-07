@@ -15,6 +15,7 @@ use crate::cli_runtime::open_engine;
 use crate::handlers::*;
 use crate::handlers_advanced::{
     cmd_heal_violations, cmd_lint_architecture, cmd_prepare_commit_message,
+    cmd_validate_commit_context,
 };
 
 /// Spawn the Hermes HTTP API on a dedicated thread + tokio runtime.
@@ -232,6 +233,7 @@ fn main() -> Result<()> {
         }
         "heal-violations" => cmd_heal_violations(&engine, &project_root, &args),
         "prepare-commit-message" => cmd_prepare_commit_message(&args),
+        "validate-commit-context" => cmd_validate_commit_context(&args),
         "search-misses" => {
             // Optional: --since <Nd> (e.g. 7d) and --top <N>
             let since_days = args

@@ -103,3 +103,17 @@ pub fn cmd_prepare_commit_message(args: &[String]) -> Result<()> {
     println!("{message}");
     Ok(())
 }
+
+pub fn cmd_validate_commit_context(args: &[String]) -> Result<()> {
+    let message = args.get(2).map(String::as_str).unwrap_or("");
+    if message.is_empty() {
+        anyhow::bail!("usage: hermes validate-commit-context <commit-message-text>");
+    }
+    let out = mcp_commit::tool_validate_commit_context(message)?;
+    println!("{out}");
+    let v: serde_json::Value = serde_json::from_str(&out)?;
+    if v["valid"] == false {
+        std::process::exit(1);
+    }
+    Ok(())
+}
