@@ -137,6 +137,10 @@ fn actor_loop(engine: HermesEngine, project_root: PathBuf, rx: Receiver<ActorMes
                         started_at.elapsed().as_millis(),
                         success,
                     );
+                    // Record in accounting table for structured queries.
+                    if let Ok(acct) = crate::accounting::Accountant::new(engine.clone(), engine.project_id(), engine.session_id()) {
+                        let _ = acct.record_tool_call(&name, started_at.elapsed().as_millis() as u64, success);
+                    }
                     let _ = reply.send(result);
                 });
             }

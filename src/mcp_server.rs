@@ -13,7 +13,8 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tracing::{error, info, warn};
 
 use crate::{
     mcp_actor::ToolActor,
@@ -291,11 +292,20 @@ pub(crate) fn handle_tools_list(params: &Value) -> Value {
 
 fn handle_tool_call(actor: &ToolActor, params: &Value) -> Result<Value> {
     let name = params["name"].as_str().unwrap_or("");
-    let args = &params["arguments"];
     anyhow::ensure!(!name.is_empty(), "tools/call requires 'name'");
-    let text = actor.call_tool(name, args)?;
 
-    Ok(json!({ "content": [{ "type": "text", "text": text }] }))
+    let start = Instant::now();
+    info!(tool = name, "tool_call_start");
+
+    let result = actor.call_tool(name, &params["arguments"]);
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    match &result {
+        Ok(_) => info!(tool = name, duration_ms, "tool_call_complete"),
+        Err(e) => error!(tool = name, duration_ms, error = %e, "tool_call_error"),
+    }
+
+    result.map(|text| json!({ "content": [{ "type": "text", "text": text }] }))
 }
 
 fn routing_enabled() -> bool {

@@ -181,6 +181,89 @@ impl Accountant {
             Ok(())
         })
     }
+
+    /// Record a tool call for observability (name, duration_ms, success).
+    pub fn record_tool_call(&self, tool_name: &str, duration_ms: u64, success: bool) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO tool_calls (project_id, session_id, tool_name, duration_ms, success)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    self.project_id,
+                    self.session_id,
+                    tool_name,
+                    duration_ms as i64,
+                    if success { 1 } else { 0 },
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Get recent slow tool calls (duration > threshold_ms).
+    pub fn get_slow_tool_calls(&self, threshold_ms: u64) -> Result<Vec<SlowToolCall>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, tool_name, duration_ms, success, created_at
+                 FROM tool_calls
+                 WHERE project_id = ?1 AND duration_ms >= ?2
+                 ORDER BY duration_ms DESC
+                 LIMIT 50",
+            )?;
+            let rows = stmt.query_map(params![self.project_id, threshold_ms as i64], |row| {
+                Ok(SlowToolCall {
+                    id: row.get(0)?,
+                    tool_name: row.get(1)?,
+                    duration_ms: row.get(2)?,
+                    success: row.get(3)? != 0,
+                    created_at: row.get(4)?,
+                })
+            })?;
+            rows.filter_map(|r| r.ok()).collect()
+        })
+    }
+
+    /// Get tool call summary stats (count, avg duration, error rate).
+    pub fn get_tool_call_stats(&self) -> Result<Vec<ToolCallStat>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT tool_name, COUNT(*) as cnt, AVG(duration_ms) as avg_ms,
+                        SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors
+                 FROM tool_calls
+                 WHERE project_id = ?1
+                 GROUP BY tool_name
+                 ORDER BY cnt DESC",
+            )?;
+            let rows = stmt.query_map(params![self.project_id], |row| {
+                Ok(ToolCallStat {
+                    tool_name: row.get(0)?,
+                    count: row.get(1)?,
+                    avg_duration_ms: row.get(2)?,
+                    error_count: row.get(3)?,
+                })
+            })?;
+            rows.filter_map(|r| r.ok()).collect()
+        })
+    }
+}
+
+/// A slow tool call record.
+#[derive(Debug, Clone, Serialize)]
+pub struct SlowToolCall {
+    pub id: i64,
+    pub tool_name: String,
+    pub duration_ms: i64,
+    pub success: bool,
+    pub created_at: String,
+}
+
+/// Aggregated stats per tool name.
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolCallStat {
+    pub tool_name: String,
+    pub count: u64,
+    pub avg_duration_ms: f64,
+    pub error_count: i64,
 }
 
 /// Build an AND clause for time filtering. Empty string = no filter.
