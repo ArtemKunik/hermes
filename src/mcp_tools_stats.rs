@@ -109,3 +109,53 @@ pub fn tool_list_facts(engine: &HermesEngine, filter: Option<&str>) -> Result<St
     let facts = store.get_active_facts(&fact_filter)?;
     Ok(serde_json::to_string_pretty(&facts)?)
 }
+
+pub fn tool_add_fact_with_conn_full(
+    engine: &HermesEngine,
+    conn: &Connection,
+    fact_type_str: &str,
+    content: &str,
+    node_id: Option<&str>,
+    topic: Option<&str>,
+    tags: &[String],
+    confidence: Option<f64>,
+    ttl: Option<&str>,
+    source_reference: Option<&str>,
+    provenance: Option<&str>,
+    repo_id: Option<&str>,
+    agent_id: Option<&str>,
+) -> Result<String> {
+    use crate::temporal::{AddFactInput, FactType};
+    let input = AddFactInput {
+        node_id,
+        fact_type: FactType::parse_str(fact_type_str),
+        content,
+        topic,
+        tags: tags.to_vec(),
+        confidence,
+        ttl,
+        source_reference,
+        provenance,
+        repo_id,
+        agent_id,
+    };
+    let store = TemporalStore::from_conn(conn, engine.project_id());
+    let id = store.add_fact(input)?;
+    Ok(serde_json::to_string_pretty(
+        &json!({ "id": id, "status": "recorded" }),
+    )?)
+}
+
+pub fn tool_expire_fact_with_conn(
+    engine: &HermesEngine,
+    conn: &Connection,
+    fact_id: &str,
+    superseded_by: Option<&str>,
+) -> Result<String> {
+    use crate::temporal::TemporalStore;
+    let store = TemporalStore::from_conn(conn, engine.project_id());
+    store.expire_fact(fact_id, superseded_by)?;
+    Ok(serde_json::to_string_pretty(
+        &json!({ "id": fact_id, "status": "expired" }),
+    )?)
+}

@@ -7,7 +7,7 @@ use anyhow::Result;
 use rusqlite::Connection as SqliteConnection;
 use serde_json::json;
 
-use crate::{accounting::Accountant, blast_radius, HermesEngine};
+use crate::{accounting::Accountant, blast_radius, graph::{Edge, EdgeType, KnowledgeGraph, Node, NodeType}, HermesEngine};
 
 /// Generate a token-budget-constrained repository map.
 ///
@@ -279,6 +279,145 @@ fn get_blast_info(
         }),
         _ => json!({ "found": false }),
     }
+}
+
+/// Get 1-hop neighbors of a node (both incoming and outgoing edges).
+pub fn tool_neighbors(
+    engine: &HermesEngine,
+    node_id: &str,
+    edge_types: Option<Vec<String>>,
+    limit: Option<usize>,
+) -> Result<String> {
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let graph = KnowledgeGraph::new(conn.clone(), engine.project_id());
+
+    let neighbors = graph.get_neighbors(node_id, edge_types.as_deref(), limit)?;
+
+    let results: Vec<serde_json::Value> = neighbors
+        .into_iter()
+        .map(|(node, edge, is_outgoing)| {
+            json!({
+                "node": {
+                    "id": node.id,
+                    "project_id": node.project_id,
+                    "name": node.name,
+                    "node_type": node.node_type.as_str(),
+                    "file_path": node.file_path,
+                    "start_line": node.start_line,
+                    "end_line": node.end_line,
+                    "summary": node.summary,
+                    "content_tokens": node.content_tokens,
+                    "object_type": node.object_type,
+                },
+                "edge": {
+                    "id": edge.id,
+                    "project_id": edge.project_id,
+                    "source_id": edge.source_id,
+                    "target_id": edge.target_id,
+                    "edge_type": edge.edge_type.as_str(),
+                    "weight": edge.weight,
+                },
+                "direction": if is_outgoing { "outgoing" } else { "incoming" },
+            })
+        })
+        .collect();
+
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
+    let ptr_tokens = (results.len() as u64).saturating_mul(40);
+    let _ = acct.record_query(
+        &format!("neighbors:{}", node_id),
+        ptr_tokens,
+        0,
+        ptr_tokens.saturating_mul(15),
+    );
+
+    Ok(serde_json::to_string_pretty(&json!({
+        "node_id": node_id,
+        "neighbors": results,
+        "count": results.len(),
+    }))?)
+}
+
+/// Get a subgraph of nodes and edges with optional filters.
+pub fn tool_graph(
+    engine: &HermesEngine,
+    node_ids: Option<Vec<String>>,
+    node_types: Option<Vec<String>>,
+    edge_types: Option<Vec<String>>,
+    limit: Option<usize>,
+) -> Result<String> {
+    let conn = engine
+        .read_db()
+        .lock()
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let graph = KnowledgeGraph::new(conn.clone(), engine.project_id());
+
+    let (nodes, edges) = graph.get_subgraph(
+        node_ids.as_deref(),
+        node_types.as_deref(),
+        edge_types.as_deref(),
+        limit,
+    )?;
+
+    let node_results: Vec<serde_json::Value> = nodes
+        .into_iter()
+        .map(|node| {
+            json!({
+                "id": node.id,
+                "project_id": node.project_id,
+                "name": node.name,
+                "node_type": node.node_type.as_str(),
+                "file_path": node.file_path,
+                "start_line": node.start_line,
+                "end_line": node.end_line,
+                "summary": node.summary,
+                "content_tokens": node.content_tokens,
+                "object_type": node.object_type,
+            })
+        })
+        .collect();
+
+    let edge_results: Vec<serde_json::Value> = edges
+        .into_iter()
+        .map(|edge| {
+            json!({
+                "id": edge.id,
+                "project_id": edge.project_id,
+                "source_id": edge.source_id,
+                "target_id": edge.target_id,
+                "edge_type": edge.edge_type.as_str(),
+                "weight": edge.weight,
+            })
+        })
+        .collect();
+
+    let total_count = node_results.len() + edge_results.len();
+    let acct = Accountant::new(
+        engine.db().clone(),
+        engine.project_id(),
+        engine.session_id(),
+    );
+    let ptr_tokens = (total_count as u64).saturating_mul(30);
+    let _ = acct.record_query(
+        "graph",
+        ptr_tokens,
+        0,
+        ptr_tokens.saturating_mul(15),
+    );
+
+    Ok(serde_json::to_string_pretty(&json!({
+        "nodes": node_results,
+        "edges": edge_results,
+        "node_count": node_results.len(),
+        "edge_count": edge_results.len(),
+    }))?)
 }
 
 #[cfg(test)]

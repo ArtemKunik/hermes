@@ -24,10 +24,10 @@ use crate::{
 // Re-export tools defined in sub-modules so callers use `mcp_tools::tool_*`.
 pub use crate::mcp_tools_analysis::{tool_scan_duplicates, tool_search_misses};
 pub use crate::mcp_tools_graph::{
-    tool_blast_score, tool_high_blast, tool_impact_analysis, tool_repo_map,
+    tool_blast_score, tool_graph, tool_high_blast, tool_impact_analysis, tool_neighbors, tool_repo_map,
 };
 pub use crate::mcp_tools_stats::{
-    tool_add_fact, tool_add_fact_with_conn, tool_list_facts, tool_stats, tool_stats_with_conn,
+    tool_add_fact, tool_add_fact_with_conn, tool_add_fact_with_conn_full, tool_expire_fact_with_conn, tool_list_facts, tool_stats, tool_stats_with_conn,
 };
 
 pub fn tool_search(engine: &HermesEngine, query: &str, goal: Option<&str>) -> Result<String> {

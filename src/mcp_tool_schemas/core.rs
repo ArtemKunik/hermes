@@ -82,5 +82,31 @@ pub fn tools() -> Vec<Value> {
                 "required": ["file_path"]
             }
         }),
+        json!({
+            "name": "hermes_graph",
+            "description": "Retrieve a subgraph of nodes and edges from the knowledge graph. Optionally filter by node IDs, node types, and edge types. Returns both nodes and edges.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "node_ids": { "type": "array", "items": { "type": "string" }, "description": "Specific node IDs to include (omit for all)" },
+                    "node_types": { "type": "array", "items": { "type": "string" }, "description": "Filter by node types (e.g. ['function', 'struct', 'file'])" },
+                    "edge_types": { "type": "array", "items": { "type": "string" }, "description": "Filter by edge types (e.g. ['calls', 'imports'])" },
+                    "limit": { "type": "integer", "description": "Maximum number of nodes/edges to return (default: 100)" }
+                }
+            }
+        }),
+        json!({
+            "name": "hermes_neighbors",
+            "description": "Get 1-hop neighbors of a node (both incoming and outgoing edges). Returns connected nodes with edge details and direction.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "node_id": { "type": "string", "description": "ID of the node to get neighbors for" },
+                    "edge_types": { "type": "array", "items": { "type": "string" }, "description": "Optional filter by edge types (e.g. ['calls', 'imports'])" },
+                    "limit": { "type": "integer", "description": "Maximum number of neighbors to return (default: 50)" }
+                },
+                "required": ["node_id"]
+            }
+        }),
     ]
 }

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 
-use crate::{mcp_tools, mcp_tools_consistency, mcp_tools_validation, HermesEngine};
+use crate::{mcp_tools, mcp_tools_consistency, mcp_tools_graph, mcp_tools_validation, HermesEngine};
 
 // ── Context & Handler Type ──────────────────────────────────────────────────
 
@@ -213,18 +213,48 @@ fn register_tools_inner(map: &mut HashMap<&'static str, ToolHandler>) {
     });
 
     reg(map, "hermes_fact", |ctx, args| {
-        let ft = args["fact_type"].as_str().unwrap_or("");
+        let ft = args["fact_type"].as_str().unwrap_or("observation");
         let c = args["content"].as_str().unwrap_or("");
-        anyhow::ensure!(
-            !ft.is_empty() && !c.is_empty(),
-            "hermes_fact requires 'fact_type' and 'content'"
-        );
-        mcp_tools::tool_add_fact_with_conn(ctx.engine, ctx.conn, ft, c)
+        anyhow::ensure!(!c.is_empty(), "hermes_fact requires 'content'");
+        let node_id = args["node_id"].as_str();
+        let topic = args["topic"].as_str();
+        let tags: Vec<String> = args["tags"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let confidence = args["confidence"].as_f64();
+        let ttl = args["ttl"].as_str();
+        let source_reference = args["source_reference"].as_str();
+        let provenance = args["provenance"].as_str();
+        let repo_id = args["repo_id"].as_str();
+        let agent_id = args["agent_id"].as_str();
+        mcp_tools::tool_add_fact_with_conn_full(
+            ctx.engine,
+            ctx.conn,
+            ft,
+            c,
+            node_id,
+            topic,
+            &tags,
+            confidence,
+            ttl,
+            source_reference,
+            provenance,
+            repo_id,
+            agent_id,
+        )
     });
 
     reg(map, "hermes_facts", |ctx, args| {
         let filter = args["fact_type"].as_str();
         mcp_tools::tool_list_facts(ctx.engine, filter)
+    });
+
+    reg(map, "hermes_fact_expire", |ctx, args| {
+        let fact_id = args["fact_id"].as_str().unwrap_or("");
+        anyhow::ensure!(!fact_id.is_empty(), "hermes_fact_expire requires 'fact_id'");
+        let superseded_by = args["superseded_by"].as_str();
+        mcp_tools::tool_expire_fact_with_conn(ctx.engine, ctx.conn, fact_id, superseded_by)
     });
 
     reg(map, "hermes_repo_map", |ctx, args| {
@@ -251,6 +281,30 @@ fn register_tools_inner(map: &mut HashMap<&'static str, ToolHandler>) {
         let threshold = args["threshold"].as_f64().unwrap_or(1.0);
         let limit = args["limit"].as_u64().unwrap_or(20) as usize;
         mcp_tools::tool_high_blast(ctx.engine, threshold, limit)
+    });
+
+    reg(map, "hermes_graph", |ctx, args| {
+        let node_ids: Option<Vec<String>> = args["node_ids"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        let node_types: Option<Vec<String>> = args["node_types"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        let edge_types: Option<Vec<String>> = args["edge_types"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        let limit = args["limit"].as_u64().map(|n| n as usize);
+        mcp_tools_graph::tool_graph(ctx.engine, node_ids, node_types, edge_types, limit)
+    });
+
+    reg(map, "hermes_neighbors", |ctx, args| {
+        let node_id = args["node_id"].as_str().unwrap_or("");
+        anyhow::ensure!(!node_id.is_empty(), "hermes_neighbors requires 'node_id'");
+        let edge_types: Option<Vec<String>> = args["edge_types"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        let limit = args["limit"].as_u64().map(|n| n as usize);
+        mcp_tools_graph::tool_neighbors(ctx.engine, node_id, edge_types, limit)
     });
 
     reg(map, "hermes_search_misses", |ctx, args| {

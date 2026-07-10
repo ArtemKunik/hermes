@@ -1,8 +1,8 @@
 // ChartApp/hermes-engine/src/graph_queries.rs
-use crate::graph::{KnowledgeGraph, Node, NodeType};
+use crate::graph::{Edge, EdgeType, KnowledgeGraph, Node, NodeType};
 use anyhow::Result;
 use rusqlite::params;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 impl KnowledgeGraph {
     /// Task 1.1: SQL-backed literal search using LOWER(name) index.
@@ -109,6 +109,173 @@ impl KnowledgeGraph {
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             Ok(rows)
+        })
+    }
+
+    /// Get 1-hop neighbors of a node (both incoming and outgoing edges).
+    pub fn get_neighbors(
+        &self,
+        node_id: &str,
+        edge_types: Option<&[String]>,
+        limit: Option<usize>,
+    ) -> Result<Vec<(Node, Edge, bool)>> {
+        self.with_conn(|conn| {
+            let mut sql = String::from(
+                "SELECT n.id, n.project_id, n.name, n.node_type, n.file_path, n.start_line, n.end_line, n.summary, n.content_tokens, n.object_type,
+                        e.id, e.project_id, e.source_id, e.target_id, e.edge_type, e.weight,
+                        e.source_id = ?1 as is_outgoing
+                 FROM edges e
+                 JOIN nodes n ON (n.id = e.target_id AND e.source_id = ?1)
+                    OR (n.id = e.source_id AND e.target_id = ?1)
+                 WHERE e.project_id = ?2",
+            );
+            let mut params_list = vec![
+                node_id.to_string().into(),
+                self.project_id().to_string().into(),
+            ];
+
+            if let Some(types) = edge_types {
+                if !types.is_empty() {
+                    let placeholders = types.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                    sql.push_str(&format!(" AND e.edge_type IN ({})", placeholders));
+                    for t in types {
+                        params_list.push(t.as_str().into());
+                    }
+                }
+            }
+
+            sql.push_str(" ORDER BY e.weight DESC");
+            if let Some(lim) = limit {
+                sql.push_str(&format!(" LIMIT {}", lim));
+            }
+
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(params_list), |row| {
+                let node = node_from_row(row)?;
+                let edge = Edge {
+                    id: row.get(10)?,
+                    project_id: row.get(11)?,
+                    source_id: row.get(12)?,
+                    target_id: row.get(13)?,
+                    edge_type: EdgeType::parse_str(&row.get::<_, String>(14)?),
+                    weight: row.get(15)?,
+                };
+                let is_outgoing: bool = row.get(16)?;
+                Ok((node, edge, is_outgoing))
+            })?;
+
+            let mut results = Vec::new();
+            for row in rows {
+                results.push(row?);
+            }
+            Ok(results)
+        })
+    }
+
+    /// Get a subgraph of nodes and edges, optionally filtered by node types and edge types.
+    pub fn get_subgraph(
+        &self,
+        node_ids: Option<&[String]>,
+        node_types: Option<&[String]>,
+        edge_types: Option<&[String]>,
+        limit: Option<usize>,
+    ) -> Result<(Vec<Node>, Vec<Edge>)> {
+        self.with_conn(|conn| {
+            let mut node_sql = String::from(
+                "SELECT id, project_id, name, node_type, file_path, start_line, end_line, summary, content_tokens, object_type
+                 FROM nodes WHERE project_id = ?1",
+            );
+            let mut node_params = vec![self.project_id().to_string().into()];
+
+            if let Some(ids) = node_ids {
+                if !ids.is_empty() {
+                    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                    node_sql.push_str(&format!(" AND id IN ({})", placeholders));
+                    for id in ids {
+                        node_params.push(id.as_str().into());
+                    }
+                }
+            }
+
+            if let Some(types) = node_types {
+                if !types.is_empty() {
+                    let placeholders = types.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                    node_sql.push_str(&format!(" AND node_type IN ({})", placeholders));
+                    for t in types {
+                        node_params.push(t.as_str().into());
+                    }
+                }
+            }
+
+            node_sql.push_str(" ORDER BY name");
+            if let Some(lim) = limit {
+                node_sql.push_str(&format!(" LIMIT {}", lim));
+            }
+
+            let mut node_stmt = conn.prepare(&node_sql)?;
+            let node_rows = node_stmt.query_map(rusqlite::params_from_iter(node_params), node_from_row)?;
+            let mut nodes = Vec::new();
+            let mut node_id_set = HashSet::new();
+            for row in node_rows {
+                let node = row?;
+                node_id_set.insert(node.id.clone());
+                nodes.push(node);
+            }
+
+            // Now get edges between these nodes
+            if node_id_set.is_empty() {
+                return Ok((nodes, Vec::new()));
+            }
+
+            let mut edge_sql = String::from(
+                "SELECT id, project_id, source_id, target_id, edge_type, weight
+                 FROM edges WHERE project_id = ?1",
+            );
+            let mut edge_params = vec![self.project_id().to_string().into()];
+
+            // Filter edges to only those where both source and target are in our node set
+            let placeholders = node_id_set.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            edge_sql.push_str(&format!(" AND source_id IN ({}) AND target_id IN ({})", placeholders, placeholders));
+            for id in &node_id_set {
+                edge_params.push(id.as_str().into());
+            }
+            for id in &node_id_set {
+                edge_params.push(id.as_str().into());
+            }
+
+            if let Some(types) = edge_types {
+                if !types.is_empty() {
+                    let placeholders = types.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                    edge_sql.push_str(&format!(" AND edge_type IN ({})", placeholders));
+                    for t in types {
+                        edge_params.push(t.as_str().into());
+                    }
+                }
+            }
+
+            edge_sql.push_str(" ORDER BY weight DESC");
+            if let Some(lim) = limit {
+                edge_sql.push_str(&format!(" LIMIT {}", lim));
+            }
+
+            let mut edge_stmt = conn.prepare(&edge_sql)?;
+            let edge_rows = edge_stmt.query_map(rusqlite::params_from_iter(edge_params), |row| {
+                Ok(Edge {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    source_id: row.get(2)?,
+                    target_id: row.get(3)?,
+                    edge_type: EdgeType::parse_str(&row.get::<_, String>(4)?),
+                    weight: row.get(5)?,
+                })
+            })?;
+
+            let mut edges = Vec::new();
+            for row in edge_rows {
+                edges.push(row?);
+            }
+
+            Ok((nodes, edges))
         })
     }
 }
